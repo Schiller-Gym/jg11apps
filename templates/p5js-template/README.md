@@ -3,6 +3,8 @@
 ## 📖 Beschreibung
 Ein Template für interaktive physikalische Simulationen mit p5.js.
 
+**Hinweis:** Dieses Template benötigt eine Internetverbindung, um die p5.js-Bibliothek von CDN zu laden. Alternativ kannst du p5.js herunterladen und lokal einbinden.
+
 ## 🎯 Beispiel
 Dieses Template demonstriert:
 - Mehrere Bälle mit Gravitation
@@ -19,7 +21,8 @@ Dieses Template demonstriert:
 ## 📝 Code-Struktur
 
 ### index.html
-- Lädt p5.js von CDN
+- Lädt p5.js von CDN (benötigt Internetverbindung)
+- **Alternative:** Lade p5.js von [p5js.org/download](https://p5js.org/download/) herunter und binde es lokal ein
 - Styling für die Seite
 - Container für Canvas
 
