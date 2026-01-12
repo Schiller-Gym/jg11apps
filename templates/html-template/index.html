@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Template - Physik Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        h1 {
+            color: #333;
+        }
+        
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 800px;
+        }
+        
+        canvas {
+            border: 2px solid #333;
+            display: block;
+            margin: 20px auto;
+            background-color: #fff;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+            background-color: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #5568d3;
+        }
+        
+        .info {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f4ff;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Physik Simulation - HTML Template</h1>
+        
+        <div class="info">
+            <h3>📝 Anleitung:</h3>
+            <p>Dies ist ein einfaches Template für eine Physik-Simulation mit HTML Canvas.</p>
+            <p>Ändere den Code nach Bedarf, um deine eigene Simulation zu erstellen!</p>
+        </div>
+        
+        <canvas id="simulationCanvas" width="600" height="400"></canvas>
+        
+        <div class="controls">
+            <button id="startBtn">Start</button>
+            <button id="pauseBtn">Pause</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+        
+        <div class="info">
+            <h3>🔬 Physikalisches Konzept:</h3>
+            <p>Beispiel: Freier Fall mit konstanter Beschleunigung g = 9.81 m/s²</p>
+        </div>
+    </div>
+    
+    <script>
+        // Canvas Setup
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Physikalische Konstanten
+        const g = 9.81; // Erdbeschleunigung in m/s²
+        const scale = 50; // Pixel pro Meter
+        
+        // Simulation State
+        let running = false;
+        let ball = {
+            x: canvas.width / 2,  // Position in Pixel
+            y: 50,                 // Position in Pixel
+            vx: 0,                 // Geschwindigkeit in m/s
+            vy: 0,                 // Geschwindigkeit in m/s
+            radius: 10             // Radius in Pixel
+        };
+        
+        // Zeit-Verwaltung
+        let lastTime = Date.now();
+        
+        // Zeichne Ball
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#667eea';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        
+        // Update Physik
+        function updatePhysics() {
+            if (!running) return;
+            
+            const currentTime = Date.now();
+            const dt = (currentTime - lastTime) / 1000; // Delta Zeit in Sekunden
+            lastTime = currentTime;
+            
+            // Physik: v = v0 + a*t
+            ball.vy += g * dt;
+            
+            // Position: s = s0 + v*t
+            ball.y += ball.vy * scale * dt;
+            
+            // Boden-Kollision (mit Energieverlust)
+            if (ball.y + ball.radius > canvas.height) {
+                ball.y = canvas.height - ball.radius;
+                ball.vy *= -0.8; // 80% der Geschwindigkeit bleiben (Energieverlust)
+            }
+            
+            // Ball stoppt wenn Geschwindigkeit sehr klein
+            if (Math.abs(ball.vy) < 0.1 && ball.y + ball.radius >= canvas.height - 1) {
+                ball.vy = 0;
+            }
+        }
+        
+        // Render Loop
+        function render() {
+            // Canvas löschen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Boden zeichnen
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, canvas.height - 5, canvas.width, 5);
+            
+            // Ball zeichnen
+            drawBall();
+            
+            // Physik updaten
+            updatePhysics();
+            
+            // Nächsten Frame anfordern
+            requestAnimationFrame(render);
+        }
+        
+        // Button Event Handler
+        document.getElementById('startBtn').addEventListener('click', () => {
+            running = true;
+            lastTime = Date.now();
+        });
+        
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            running = false;
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            running = false;
+            ball.x = canvas.width / 2;
+            ball.y = 50;
+            ball.vx = 0;
+            ball.vy = 0;
+        });
+        
+        // Simulation starten
+        render();
+    </script>
+</body>
+</html>

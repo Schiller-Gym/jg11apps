@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>p5.js Template - Physik Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 800px;
+        }
+        
+        .info {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f4ff;
+            border-radius: 5px;
+        }
+        
+        #canvas-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Physik Simulation - p5.js Template</h1>
+        
+        <div class="info">
+            <h3>📝 Anleitung:</h3>
+            <p>Dies ist ein Template für eine Physik-Simulation mit p5.js.</p>
+            <p>Klicke auf die Canvas, um einen neuen Ball zu spawnen!</p>
+            <p>Drücke 'R' zum Zurücksetzen.</p>
+        </div>
+        
+        <div id="canvas-container"></div>
+        
+        <div class="info">
+            <h3>🔬 Physikalisches Konzept:</h3>
+            <p>Beispiel: Mehrere Bälle im freien Fall mit Kollisionserkennung</p>
+            <p><strong>Steuerung:</strong> Mausklick = Ball hinzufügen, 'R' = Reset</p>
+        </div>
+    </div>
+    
+    <script src="sketch.js"></script>
+</body>
+</html>
