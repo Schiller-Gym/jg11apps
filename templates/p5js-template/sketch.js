@@ -59,7 +59,8 @@ class Ball {
         this.x += this.vx;
         this.y += this.vy;
         
-        // Luftwiderstand (wirkt auf beide Richtungen)
+        // Luftwiderstand (vereinfacht: gleicher Koeffizient für beide Richtungen)
+        // Hinweis: Realer Luftwiderstand hängt von Geschwindigkeit und Richtung ab
         this.vx *= AIR_RESISTANCE;
         this.vy *= AIR_RESISTANCE;
     }
