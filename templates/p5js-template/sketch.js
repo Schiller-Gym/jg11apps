@@ -1,7 +1,7 @@
 // Physikalische Konstanten
 const GRAVITY = 0.5;  // Beschleunigung nach unten
 const BOUNCE = 0.8;   // Energieverlust beim Aufprall (80% bleiben)
-const FRICTION = 0.99; // Luftwiderstand
+const AIR_RESISTANCE = 0.99; // Luftwiderstand (sehr gering)
 
 // Array für alle Bälle
 let balls = [];
@@ -59,9 +59,9 @@ class Ball {
         this.x += this.vx;
         this.y += this.vy;
         
-        // Luftwiderstand
-        this.vx *= FRICTION;
-        this.vy *= FRICTION;
+        // Luftwiderstand (wirkt auf beide Richtungen)
+        this.vx *= AIR_RESISTANCE;
+        this.vy *= AIR_RESISTANCE;
     }
     
     // Kollision mit Wänden prüfen

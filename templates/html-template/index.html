@@ -128,11 +128,13 @@
             const dt = (currentTime - lastTime) / 1000; // Delta Zeit in Sekunden
             lastTime = currentTime;
             
-            // Physik: v = v0 + a*t
+            // Physik: v = v0 + a*t (Geschwindigkeit durch Beschleunigung)
             ball.vy += g * dt;
             
-            // Position: s = s0 + v*t
+            // Position: s = s0 + v*t (Euler-Integration - Vereinfachte Methode)
+            // Hinweis: Für genauere Physik könnte man s = s0 + v0*t + 0.5*a*t² verwenden
             ball.y += ball.vy * scale * dt;
+            ball.x += ball.vx * scale * dt;  // Horizontale Bewegung
             
             // Boden-Kollision (mit Energieverlust)
             if (ball.y + ball.radius > canvas.height) {
