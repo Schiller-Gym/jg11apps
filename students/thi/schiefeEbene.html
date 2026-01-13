@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schiefe Ebene Simulation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 650px;
+        }
+
+        canvas {
+            background-color: #eef;
+            border: 2px solid #333;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 15px;
+            align-items: center;
+        }
+
+        input[type=range] {
+            width: 100%;
+        }
+
+        .buttons {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button.reset {
+            background-color: #6c757d;
+        }
+        
+        button.reset:hover {
+            background-color: #545b62;
+        }
+
+        .info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Simulation: Schiefe Ebene</h2>
+    <canvas id="simCanvas" width="600" height="400"></canvas>
+
+    <div class="controls">
+        <span>Flach (0°)</span>
+        <input type="range" id="angleSlider" min="0" max="45" value="15" step="0.5">
+        <span>Steil (45°)</span>
+    </div>
+    
+    <div class="info">
+        Aktueller Winkel: <strong><span id="angleValue">15</span>°</strong><br>
+        Geschwindigkeit: <span id="velValue">0.00</span> m/s
+    </div>
+
+    <div class="buttons">
+        <button onclick="startSimulation()">Start / Pause</button>
+        <button class="reset" onclick="resetSimulation()">Zurücksetzen</button>
+    </div>
+</div>
+
+<script>
+    // --- Konfiguration ---
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Physik-Konstanten
+    const GRAVITY = 9.81; // m/s^2
+    const PIXELS_PER_METER = 100; // Maßstab: 100px entsprechen 1 Meter
+    const TIME_STEP = 1/60; // 60 FPS
+    
+    // Objekteigenschaften
+    const rampLength = 500; // Länge der Rampe in Pixeln
+    const ballRadius = 15;
+    
+    // Zustand
+    let angleDeg = 15;
+    let angleRad = angleDeg * (Math.PI / 180);
+    let ballPos = 0; // Position auf der Rampe (0 = oben, rampLength = unten)
+    let ballVelocity = 0; // Pixel pro Frame
+    let isRunning = false;
+    let ballRotation = 0; // Für visuelle Rotation
+
+    // Pivot-Punkt der Rampe (Unten rechts im Canvas)
+    const pivotX = 550;
+    const pivotY = 350;
+
+    // DOM Elemente
+    const slider = document.getElementById('angleSlider');
+    const angleDisplay = document.getElementById('angleValue');
+    const velDisplay = document.getElementById('velValue');
+
+    // --- Event Listeners ---
+    slider.addEventListener('input', (e) => {
+        angleDeg = parseFloat(e.target.value);
+        angleRad = angleDeg * (Math.PI / 180);
+        angleDisplay.textContent = angleDeg.toFixed(1);
+        
+        // Wenn wir den Winkel ändern, setzen wir die Position zurück, 
+        // es sei denn, die Simulation läuft gerade.
+        if (!isRunning && ballPos > 0) {
+            // Optional: resetSimulation();
+        }
+        draw();
+    });
+
+    // --- Physik Engine ---
+    function updatePhysics() {
+        if (!isRunning) return;
+
+        // Beschleunigung auf der schiefen Ebene: a = g * sin(alpha)
+        // Faktor 5/7 berücksichtigt das Trägheitsmoment einer Vollkugel (Rotation)
+        // Ohne Rotation wäre es einfach g * sin(alpha)
+        const acceleration = (5/7) * GRAVITY * Math.sin(angleRad);
+        
+        // Umrechnung in Pixel/Frame^2
+        const accelPx = acceleration * PIXELS_PER_METER * TIME_STEP * TIME_STEP;
+
+        ballVelocity += accelPx;
+        ballPos += ballVelocity;
+
+        // Visuelle Rotation des Balls
+        // Weg = Radius * Winkel -> Winkel = Weg / Radius
+        ballRotation += ballVelocity / ballRadius;
+
+        // Ende der Rampe erreicht?
+        if (ballPos >= rampLength) {
+            ballPos = rampLength;
+            isRunning = false;
+        }
+
+        // GUI Update
+        // Geschwindigkeit in m/s umrechnen (Pixel/Frame -> m/s)
+        const velMetresPerSec = (ballVelocity / TIME_STEP) / PIXELS_PER_METER;
+        velDisplay.textContent = velMetresPerSec.toFixed(2);
+    }
+
+    // --- Rendering ---
+    function draw() {
+        // Canvas löschen
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Koordinatensystem berechnen
+        // Startpunkt der Rampe (oben links, abhängig vom Winkel)
+        const startX = pivotX - rampLength * Math.cos(angleRad);
+        const startY = pivotY - rampLength * Math.sin(angleRad);
+
+        // 1. Zeichne den Boden (statischer Referenzpunkt)
+        ctx.beginPath();
+        ctx.moveTo(0, pivotY);
+        ctx.lineTo(canvas.width, pivotY);
+        ctx.strokeStyle = '#ccc';
+        ctx.stroke();
+
+        // 2. Zeichne das Dreieck (Rampe)
+        ctx.fillStyle = '#ddd';
+        ctx.beginPath();
+        ctx.moveTo(pivotX, pivotY); // Unten rechts
+        ctx.lineTo(startX, pivotY); // Unten links (virtuell unter dem Start)
+        ctx.lineTo(startX, startY); // Oben links (Startpunkt)
+        ctx.closePath();
+        ctx.fill();
+        
+        // Rampen-Oberfläche
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(pivotX, pivotY);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#555';
+        ctx.stroke();
+
+        // 3. Zeichne den Ball
+        // Position des Balls berechnen
+        // Wir interpolieren von Start (0) nach Ende (rampLength)
+        const currentDist = ballPos;
+        
+        // Vektor entlang der Rampe
+        const dx = Math.cos(angleRad);
+        const dy = Math.sin(angleRad);
+
+        // Ballzentrum (Radius senkrecht zur Rampe hinzufügen)
+        const ballCx = startX + (currentDist * dx) + (ballRadius * Math.sin(angleRad));
+        const ballCy = startY + (currentDist * dy) - (ballRadius * Math.cos(angleRad));
+
+        ctx.save();
+        ctx.translate(ballCx, ballCy);
+        ctx.rotate(ballRotation); // Rotation des Balls
+
+        // Ball Kreis
+        ctx.beginPath();
+        ctx.arc(0, 0, ballRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4757';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#333';
+        ctx.stroke();
+
+        // Linien im Ball (damit man die Drehung sieht)
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(ballRadius, 0); // Linie zum Rand
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, ballRadius); // Linie zum Rand
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    // --- Loop ---
+    function loop() {
+        updatePhysics();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    // --- Steuerung ---
+    function startSimulation() {
+        if (ballPos >= rampLength) {
+            resetSimulation();
+            setTimeout(() => { isRunning = true; }, 100);
+        } else {
+            isRunning = !isRunning;
+        }
+    }
+
+    function resetSimulation() {
+        isRunning = false;
+        ballPos = 0;
+        ballVelocity = 0;
+        ballRotation = 0;
+        velDisplay.textContent = "0.00";
+        draw();
+    }
+
+    // Initialisierung
+    draw();
+    loop();
+
+</script>
+
+</body>
+</html>
