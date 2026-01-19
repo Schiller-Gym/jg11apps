@@ -162,23 +162,30 @@
             </div>
         </div>
 
-<div>
-    <h3>Unterverzeichnisse:</h3>
-    <ul>
-        <?php
-        // Pfad zum aktuellen Verzeichnis
-        $path = ".";
-        // Alle Dateien und Ordner scannen
-        $dirs = array_filter(glob($path . '/*'), 'is_dir');
-
-        foreach ($dirs as $dir) {
-            // Den Pfadnamen säubern (entfernt './')
-            $name = basename($dir);
-            echo "<li><a href='$name/'>$name</a></li>";
-        }
-        ?>
-    </ul>
-</div>
+        <div class="directory-list">
+        <h3>Unterverzeichnisse</h3>
+        <nav>
+            <ul>
+                <li><a href="AndreasKraft/">AndreasKraft</a></li>
+                <li><a href="EljasDiekmann/">EljasDiekmann</a></li>
+                <li><a href="JeasonKeucher/">JeasonKeucher</a></li>
+                <li><a href="JohannesKirsten/">JohannesKirsten</a></li>
+                <li><a href="KatharinaGahl/">KatharinaGahl</a></li>
+                <li><a href="KlaraHahn/">KlaraHahn</a></li>
+                <li><a href="KristofStuhr/">KristofStuhr</a></li>
+                <li><a href="LunaBoedeker/">LunaBoedeker</a></li>
+                <li><a href="MagnusStein/">MagnusStein</a></li>
+                <li><a href="MarieToussaint/">MarieToussaint</a></li>
+                <li><a href="MatthiasMaly/">MatthiasMaly</a></li>
+                <li><a href="MayaSchild/">MayaSchild</a></li>
+                <li><a href="NadjaBondarenko/">NadjaBondarenko</a></li>
+                <li><a href="SophiaBrand/">SophiaBrand</a></li>
+                <li><a href="TamaraBrunkhorst/">TamaraBrunkhorst</a></li>
+                <li><a href="YlvieAngerstein/">YlvieAngerstein</a></li>
+                <li><a href="thi/">thi</a></li>
+            </ul>
+        </nav>
+    </div>
         
         <footer>
             <p>Schiller-Gymnasium - Jahrgang 11 - Physik Simulationen</p>
