@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Virenverbreitung – Simulation mit Sterblichkeit</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111827;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --accent: #60a5fa;
+    --healthy: #22c55e; /* grün */
+    --infected: #ef4444; /* rot */
+    --immune: #3b82f6;   /* blau */
+    --dead: #9ca3af;     /* grau */
+    --warn: #fbbf24;     /* gelb */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 600px at 20% 0%, #0b1224 10%, var(--bg) 60%), var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  }
+  .wrap {
+    max-width: 1100px;
+    margin: 20px auto;
+    padding: 0 16px 24px;
+  }
+  h3 {
+    font-size: 1.15rem;
+    margin: 16px 0 12px;
+    font-weight: 700;
+    letter-spacing: .2px;
+  }
+  .toolbar {
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 40%), var(--panel);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ctrl { grid-column: span 12; }
+  @media (min-width: 700px) {
+    .ctrl--wide { grid-column: span 6; }
+    .ctrl--narrow { grid-column: span 3; }
+    .ctrl--mid { grid-column: span 4; }
+  }
+  label {
+    display: inline-block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  input[type="range"] { width: 100%; }
+  input[type="number"] {
+    width: 100%;
+    padding: 8px 10px;
+    background: #0b1020;
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+  }
+  input[type="checkbox"] { transform: translateY(1px); }
+  .btn {
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: #0b1020;
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .btn:hover { filter: brightness(1.15); }
+  .stats {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    font-variant-numeric: tabular-nums;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    box-shadow: 0 0 8px rgba(255,255,255,0.15) inset, 0 0 6px currentColor;
+  }
+  .dot.healthy { color: var(--healthy); background: var(--healthy); }
+  .dot.infected { color: var(--infected); background: var(--infected); }
+  .dot.immune { color: var(--immune); background: var(--immune); }
+  .dot.dead { color: var(--dead); background: var(--dead); }
+  .warn { color: var(--warn); font-size: 0.9rem; }
+  canvas {
+    width: 100%;
+    height: min(70vh, 620px);
+    display: block;
+    background:
+      radial-gradient(500px 300px at 85% 10%, rgba(96,165,250,0.12), transparent 60%),
+      radial-gradient(800px 500px at 15% 30%, rgba(34,197,94,0.10), transparent 60%),
+      #060a18;
+    border-radius: 14px;
+    margin-top: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .footer {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: .85rem;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h3>Virenverbreitung – Punkte mit Sterblichkeit und Immunität</h3>
+
+    <div class="toolbar">
+      <div class="controls">
+        <div class="ctrl ctrl--narrow">
+          <label for="num">Anzahl Punkte</label>
+          <input id="num" type="number" min="5" max="600" step="5" value="120" />
+        </div>
+
+        <div class="ctrl ctrl--narrow">
+          <label for="initInf">Anfänglich infiziert (%)</label>
+          <input id="initInf" type="number" min="0" max="100" step="1" value="6" />
+        </div>
+
+        <div class="ctrl ctrl--mid">
+          <label for="speed">Geschwindigkeit</label>
+          <input id="speed" type="range" min="0.2" max="4" step="0.1" value="1.0" />
+          <div class="row"><small class="muted">Wert: <span id="speedVal">1.0</span>x</small></div>
+        </div>
+
+        <div class="ctrl ctrl--mid">
+          <label for="rad">Infektionsradius</label>
+          <input id="rad" type="range" min="2" max="30" step="1" value="8" />
+          <div class="row"><small class="muted">Pixel: <span id="radVal">8</span></small></div>
+        </div>
+
+        <div class="ctrl ctrl--mid">
+          <label for="dur">Infektionsdauer (Sek.)</label>
+          <input id="dur" type="range" min="1" max="30" step="1" value="8" />
+          <div class="row"><small class="muted"><span id="durVal">8</span> s bis Ausgang (Immun/Tod)</small></div>
+        </div>
+
+        <div class="ctrl ctrl--mid">
+          <label for="mort">Sterblichkeitsrate (%)</label>
+          <input id="mort" type="range" min="0" max="30" step="1" value="6" />
+          <div class="row"><small class="muted">Anteil, der nach Infektion stirbt: <span id="mortVal">6</span>%</small></div>
+        </div>
+
+        <div class="ctrl ctrl--wide">
+          <label>Reset-Optionen</label>
+          <div class="row">
+            <label class="row"><input id="toggleGlobal" type="checkbox" checked /> Globaler Reset, wenn alle Lebenden jemals infiziert waren</label>
+            <label class="row"><input id="reinfect" type="checkbox" checked /> Nach Reset 1 Punkt neu infizieren</label>
+            <span class="row">
+              <span>Reset nach</span>
+              <input id="resetDelay" type="number" min="1" max="30" step="1" value="5" style="width: 70px;" />
+              <span>Sek.</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="ctrl ctrl--wide">
+          <label>Steuerung</label>
+          <div class="row">
+            <button id="startStop" class="btn">Pause</button>
+            <button id="reset" class="btn">Zurücksetzen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <span class="pill"><span class="dot healthy"></span><span>Gesund:</span> <strong id="cntHealthy">0</strong></span>
+        <span class="pill"><span class="dot infected"></span><span>Krank:</span> <strong id="cntInfected">0</strong></span>
+        <span class="pill"><span class="dot immune"></span><span>Immun:</span> <strong id="cntImmune">0</strong></span>
+        <span class="pill"><span class="dot dead"></span><span>Gestorben:</span> <strong id="cntDead">0</strong></span>
+        <span class="pill"><span>Jemals infiziert:</span> <strong id="cntEver">0</strong></span>
+        <span id="message" class="warn"></span>
+      </div>
+    </div>
+
+    <canvas id="sim" width="1000" height="600" aria-label="Simulationsfläche"></canvas>
+
+    <div class="footer">
+      Tipp: Die Sterblichkeitsrate hält die Anzahl der Todesfälle gering. Passe Radius, Dauer und Sterblichkeit an, um verschiedene Szenarien zu testen.
+    </div>
+  </div>
+
+<script>
+(() => {
+  const COLORS = {
+    healthy: getCssVar('--healthy'),
+    infected: getCssVar('--infected'),
+    immune: getCssVar('--immune'),
+    dead: getCssVar('--dead'),
+  };
+
+  // DOM
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+
+  const elNum = document.getElementById('num');
+  const elInitInf = document.getElementById('initInf');
+  const elSpeed = document.getElementById('speed');
+  const elSpeedVal = document.getElementById('speedVal');
+  const elRad = document.getElementById('rad');
+  const elRadVal = document.getElementById('radVal');
+  const elDur = document.getElementById('dur');
+  const elDurVal = document.getElementById('durVal');
+  const elMort = document.getElementById('mort');
+  const elMortVal = document.getElementById('mortVal');
+
+  const elToggleGlobal = document.getElementById('toggleGlobal');
+  const elReinfect = document.getElementById('reinfect');
+  const elResetDelay = document.getElementById('resetDelay');
+  const elStartStop = document.getElementById('startStop');
+  const elReset = document.getElementById('reset');
+
+  const cntHealthy = document.getElementById('cntHealthy');
+  const cntInfected = document.getElementById('cntInfected');
+  const cntImmune = document.getElementById('cntImmune');
+  const cntDead = document.getElementById('cntDead');
+  const cntEver = document.getElementById('cntEver');
+  const message = document.getElementById('message');
+
+  // State
+  let particles = [];
+  let animHandle = null;
+  let running = true;
+  let infectionRadius = +elRad.value;
+  let infectionDurationMs = +elDur.value * 1000;
+  let speedMultiplier = +elSpeed.value;
+  let mortality = +elMort.value / 100; // Anteil, der am Ende der Infektion stirbt
+  let scheduledGlobalReset = null;
+  let lastCounts = { h: 0, i: 0, m: 0, d: 0, e: 0 };
+
+  const RADIUS = 4;
+  const BASE_SPEED = 0.8;
+
+  function getCssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function randBetween(min, max) { return Math.random() * (max - min) + min; }
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function initSimulation() {
+    const N = clamp(+elNum.value, 5, 600) | 0;
+    const initialInfectedPercent = clamp(+elInitInf.value, 0, 100);
+    infectionRadius = +elRad.value;
+    infectionDurationMs = +elDur.value * 1000;
+    speedMultiplier = +elSpeed.value;
+    mortality = clamp(+elMort.value, 0, 30) / 100;
+
+    resizeCanvas();
+
+    particles = [];
+    const margin = RADIUS + 2;
+    for (let i = 0; i < N; i++) {
+      particles.push({
+        x: randBetween(margin, canvas.width - margin),
+        y: randBetween(margin, canvas.height - margin),
+        vx: (Math.random() < 0.5 ? -1 : 1) * randBetween(0.3, 1.0) * BASE_SPEED,
+        vy: (Math.random() < 0.5 ? -1 : 1) * randBetween(0.3, 1.0) * BASE_SPEED,
+        r: RADIUS,
+        state: 'healthy', // 'healthy' | 'infected' | 'immune' | 'dead'
+        infectedUntil: 0,
+        everInfected: false
+      });
+    }
+
+    const initInfCount = Math.min(N, Math.round(N * initialInfectedPercent / 100));
+    shuffleInPlace(particles);
+    for (let k = 0; k < initInfCount; k++) setInfected(particles[k]);
+    if (initInfCount === 0 && N > 0) setInfected(particles[0]);
+
+    scheduledGlobalReset = null;
+    running = true;
+    elStartStop.textContent = 'Pause';
+    updateCounters(true);
+    message.textContent = '';
+  }
+
+  function setInfected(p) {
+    if (p.state === 'dead') return;
+    p.state = 'infected';
+    p.infectedUntil = performance.now() + infectionDurationMs;
+    if (!p.everInfected) p.everInfected = true;
+  }
+  function setHealthy(p) {
+    if (p.state === 'dead') return;
+    p.state = 'healthy';
+    p.infectedUntil = 0;
+  }
+  function setImmune(p) {
+    if (p.state === 'dead') return;
+    p.state = 'immune';
+    p.infectedUntil = 0;
+  }
+  function setDead(p) {
+    p.state = 'dead';
+    p.infectedUntil = 0;
+    // Bewegung stoppen
+    p.vx = 0;
+    p.vy = 0;
+  }
+
+  function moveAndBounce(p) {
+    if (p.state === 'dead') return; // Tote bewegen sich nicht
+    p.x += p.vx * speedMultiplier;
+    p.y += p.vy * speedMultiplier;
+
+    if (p.x < p.r) { p.x = p.r; p.vx *= -1; }
+    if (p.x > canvas.width - p.r) { p.x = canvas.width - p.r; p.vx *= -1; }
+    if (p.y < p.r) { p.y = p.r; p.vy *= -1; }
+    if (p.y > canvas.height - p.r) { p.y = canvas.height - p.r; p.vy *= -1; }
+  }
+
+  function tryInfect(a, b) {
+    // Tote sind inert
+    if (a.state === 'dead' || b.state === 'dead') return;
+    if (a.state === 'infected' && b.state === 'healthy') {
+      setInfected(b);
+    } else if (b.state === 'infected' && a.state === 'healthy') {
+      setInfected(a);
+    }
+  }
+
+  function updateInfectionState(p, now) {
+    if (p.state === 'infected' && now >= p.infectedUntil) {
+      // Am Ende der Infektion: mit Wahrscheinlichkeit mortality stirbt der Punkt,
+      // sonst wird er immun.
+      if (Math.random() < mortality) {
+        setDead(p);
+      } else {
+        setImmune(p);
+      }
+    }
+  }
+
+  function handleInteractions() {
+    const n = particles.length;
+    for (let i = 0; i < n; i++) {
+      const a = particles[i];
+      for (let j = i + 1; j < n; j++) {
+        const b = particles[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d2 = dx*dx + dy*dy;
+        const thr = infectionRadius;
+        if (d2 <= thr*thr) {
+          tryInfect(a, b);
+        }
+        const minDist = a.r + b.r;
+        if (d2 > 0 && d2 < (minDist*minDist)) {
+          const d = Math.sqrt(d2);
+          const overlap = (minDist - d) * 0.5;
+          const nx = dx / d, ny = dy / d;
+          // Tote dürfen verschoben werden, um Überschneidung zu vermeiden, aber bleiben ohne Geschwindigkeit
+          a.x += nx * overlap;
+          a.y += ny * overlap;
+          b.x -= nx * overlap;
+          b.y -= ny * overlap;
+        }
+      }
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Subtiles Grid
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.strokeStyle = '#93c5fd';
+    ctx.lineWidth = 1;
+    const grid = 40;
+    for (let x = (canvas.width % grid); x < canvas.width; x += grid) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    }
+    for (let y = (canvas.height % grid); y < canvas.height; y += grid) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+    ctx.restore();
+
+    for (const p of particles) {
+      let color = COLORS.healthy;
+      if (p.state === 'infected') color = COLORS.infected;
+      else if (p.state === 'immune') color = COLORS.immune;
+      else if (p.state === 'dead') color = COLORS.dead;
+
+      // Glüheffekt nur für Lebende
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.shadowColor = (p.state === 'dead') ? 'transparent' : color;
+      ctx.shadowBlur = (p.state === 'dead') ? 0 : 12;
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.stroke();
+
+      if (p.state === 'infected') {
+        ctx.beginPath();
+        ctx.globalAlpha = 0.06;
+        ctx.fillStyle = COLORS.infected;
+        ctx.arc(p.x, p.y, infectionRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  function updateCounters(force = false) {
+    let h = 0, i = 0, m = 0, d = 0, e = 0;
+    for (const p of particles) {
+      if (p.state === 'healthy') h++;
+      else if (p.state === 'infected') i++;
+      else if (p.state === 'immune') m++;
+      else if (p.state === 'dead') d++;
+      if (p.everInfected) e++;
+    }
+    if (force || h !== lastCounts.h || i !== lastCounts.i || m !== lastCounts.m || d !== lastCounts.d || e !== lastCounts.e) {
+      cntHealthy.textContent = h;
+      cntInfected.textContent = i;
+      cntImmune.textContent = m;
+      cntDead.textContent = d;
+      cntEver.textContent = e;
+      lastCounts = { h, i, m, d, e };
+    }
+  }
+
+  function maybeScheduleGlobalReset() {
+    if (!elToggleGlobal.checked) return;
+    if (scheduledGlobalReset) return;
+
+    // Reset-Bedingung: Alle LEBENDEN (nicht tote) wurden jemals infiziert
+    const living = particles.filter(p => p.state !== 'dead');
+    const allLivingEver = living.length > 0 && living.every(p => p.everInfected);
+    if (allLivingEver) {
+      const delaySec = clamp(+elResetDelay.value || 5, 1, 60);
+      const at = performance.now() + delaySec * 1000;
+      scheduledGlobalReset = { at };
+    }
+  }
+
+  function checkAndRunGlobalReset(now) {
+    if (!scheduledGlobalReset) return;
+
+    const remaining = Math.max(0, scheduledGlobalReset.at - now);
+    const s = Math.ceil(remaining / 1000);
+    message.textContent = remaining > 0
+      ? `Alle Lebenden jemals infiziert – globaler Reset in ${s} s …`
+      : '';
+
+    if (remaining <= 0) {
+      // Alle LEBENDEN wieder gesund, Tote bleiben tot
+      for (const p of particles) {
+        if (p.state !== 'dead') {
+          setHealthy(p);
+          p.everInfected = false;
+        }
+      }
+      if (elReinfect.checked) {
+        const living = particles.filter(p => p.state !== 'dead');
+        if (living.length > 0) setInfected(living[0]);
+      }
+      scheduledGlobalReset = null;
+      message.textContent = '';
+      updateCounters(true);
+    }
+  }
+
+  function tick(now) {
+    if (!running) return;
+
+    for (const p of particles) {
+      moveAndBounce(p);
+      updateInfectionState(p, now);
+    }
+    handleInteractions();
+    draw();
+    updateCounters();
+
+    maybeScheduleGlobalReset();
+    checkAndRunGlobalReset(now);
+
+    animHandle = requestAnimationFrame(tick);
+  }
+
+  // Utils
+  function shuffleInPlace(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(400, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(300, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // Events
+  elSpeed.addEventListener('input', () => {
+    speedMultiplier = +elSpeed.value;
+    elSpeedVal.textContent = speedMultiplier.toFixed(1);
+  });
+  elRad.addEventListener('input', () => {
+    infectionRadius = +elRad.value;
+    elRadVal.textContent = String(infectionRadius);
+  });
+  elDur.addEventListener('input', () => {
+    infectionDurationMs = +elDur.value * 1000;
+    elDurVal.textContent = String(+elDur.value);
+  });
+  elMort.addEventListener('input', () => {
+    mortality = clamp(+elMort.value, 0, 30) / 100;
+    elMortVal.textContent = String(+elMort.value);
+  });
+
+  elStartStop.addEventListener('click', () => {
+    running = !running;
+    if (running) {
+      elStartStop.textContent = 'Pause';
+      animHandle = requestAnimationFrame(tick);
+    } else {
+      elStartStop.textContent = 'Start';
+      cancelAnimationFrame(animHandle);
+    }
+  });
+
+  elReset.addEventListener('click', () => {
+    initSimulation();
+  });
+
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    for (const p of particles) {
+      p.x = clamp(p.x, p.r, canvas.width - p.r);
+      p.y = clamp(p.y, p.r, canvas.height - p.r);
+    }
+  });
+
+  function start() {
+    elSpeedVal.textContent = (+elSpeed.value).toFixed(1);
+    elRadVal.textContent = String(+elRad.value);
+    elDurVal.textContent = String(+elDur.value);
+    elMortVal.textContent = String(+elMort.value);
+
+    initSimulation();
+    cancelAnimationFrame(animHandle);
+    animHandle = requestAnimationFrame(tick);
+  }
+  start();
+})();
+</script>
+</body>
+</html>

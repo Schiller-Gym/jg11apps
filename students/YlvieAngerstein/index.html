@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viren-Simulation: Bunte Population & Sterblichkeit</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #e9ecef;
+            margin: 0;
+            padding: 20px;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 3px solid #343a40;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            cursor: crosshair;
+        }
+        .controls {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff;
+            border-radius: 12px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .stat-panel {
+            margin-top: 20px;
+            font-size: 1.1em;
+            font-weight: bold;
+            background: #343a40;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 50px;
+            display: flex;
+            gap: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        label { font-size: 0.75em; color: #555; font-weight: bold; text-transform: uppercase; }
+        span.val { font-weight: normal; color: #007bff; }
+    </style>
+</head>
+<body>
+
+    <h2>Viren-Simulation: Leben & Sterben</h2>
+    <p>Klicke auf einen bunten Kreis zum Infizieren! 🦠</p>
+
+    <canvas id="virusCanvas" width="800" height="450"></canvas>
+
+    <div class="controls">
+        <button id="resetButton">Reset</button>
+        
+        <div class="control-group">
+            <label>Anzahl</label>
+            <input type="range" id="numPeople" min="10" max="200" value="80">
+            <span id="numVal" class="val">80</span>
+        </div>
+
+        <div class="control-group">
+            <label>Radius</label>
+            <input type="range" id="radius" min="10" max="100" value="35">
+            <span id="radVal" class="val">35</span>px
+        </div>
+
+        <div class="control-group">
+            <label>Genesung</label>
+            <input type="range" id="recovery" min="500" max="10000" step="500" value="4000">
+            <span id="recVal" class="val">4.0</span>s
+        </div>
+
+        <div class="control-group">
+            <label>Todesrate (%)</label>
+            <input type="range" id="deathRate" min="0" max="100" value="20">
+            <span id="deathVal" class="val">20</span>%
+        </div>
+    </div>
+
+    <div class="stat-panel">
+        <span style="color: #4cd137;">Gesund: <span id="hCount">0</span></span>
+        <span style="color: #e84118;">Infiziert: <span id="iCount">0</span></span>
+        <span style="color: #00a8ff;">Immun: <span id="imCount">0</span></span>
+        <span style="color: #7f8c8d;">Verstorben: <span id="dCount">0</span></span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('virusCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let people = [];
+        let numPeople = 80;
+        let infectionRadius = 35;
+        let recoveryTime = 4000;
+        let deathRate = 0.2;
+        let deadCount = 0;
+
+        function getRandomColor() {
+            return `hsl(${Math.random() * 360}, 80%, 50%)`;
+        }
+
+        class Person {
+            constructor() {
+                this.r = 10;
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * (canvas.width - this.r * 2) + this.r;
+                this.y = Math.random() * (canvas.height - this.r * 2) + this.r;
+                this.color = getRandomColor();
+                this.dx = (Math.random() - 0.5) * 4;
+                this.dy = (Math.random() - 0.5) * 4;
+                this.status = 'healthy'; 
+                this.infectedAt = 0;
+                this.isDead = false;
+            }
+
+            draw() {
+                if (this.isDead) return;
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                if (this.status === 'infected') {
+                    ctx.strokeStyle = '#ff0000';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.font = "14px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText("🦠", this.x, this.y + 5);
+                } else if (this.status === 'immune') {
+                    ctx.strokeStyle = '#00a8ff';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.font = "12px Arial";
+                    ctx.fillText("🛡️", this.x, this.y - 12);
+                } else {
+                    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            update() {
+                if (this.isDead) return;
+
+                this.x += this.dx;
+                this.y += this.dy;
+
+                if (this.x < this.r || this.x > canvas.width - this.r) this.dx *= -1;
+                if (this.y < this.r || this.y > canvas.height - this.r) this.dy *= -1;
+
+                if (this.status === 'infected' && Date.now() - this.infectedAt > recoveryTime) {
+                    if (Math.random() < deathRate) {
+                        this.isDead = true;
+                        deadCount++;
+                    } else {
+                        this.status = 'immune';
+                    }
+                }
+            }
+        }
+
+        function init() {
+            people = [];
+            deadCount = 0;
+            for (let i = 0; i < numPeople; i++) {
+                people.push(new Person());
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Infektionslogik
+            const infected = people.filter(p => p.status === 'infected' && !p.isDead);
+            const healthy = people.filter(p => p.status === 'healthy' && !p.isDead);
+
+            infected.forEach(inf => {
+                healthy.forEach(hea => {
+                    if (Math.hypot(inf.x - hea.x, inf.y - hea.y) < infectionRadius + 10) {
+                        hea.status = 'infected';
+                        hea.infectedAt = Date.now();
+                    }
+                });
+            });
+
+            let h = 0, i = 0, im = 0;
+            people.forEach(p => {
+                p.update();
+                p.draw();
+                if (!p.isDead) {
+                    if (p.status === 'healthy') h++;
+                    else if (p.status === 'infected') i++;
+                    else if (p.status === 'immune') im++;
+                }
+            });
+
+            document.getElementById('hCount').innerText = h;
+            document.getElementById('iCount').innerText = i;
+            document.getElementById('imCount').innerText = im;
+            document.getElementById('dCount').innerText = deadCount;
+            
+            requestAnimationFrame(animate);
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            people.forEach(p => {
+                if (!p.isDead && Math.hypot(p.x - mx, p.y - my) < 20) {
+                    p.status = 'infected';
+                    p.infectedAt = Date.now();
+                }
+            });
+        });
+
+        document.getElementById('numPeople').oninput = function() {
+            numPeople = this.value;
+            document.getElementById('numVal').innerText = this.value;
+            init();
+        };
+        document.getElementById('radius').oninput = function() {
+            infectionRadius = parseInt(this.value);
+            document.getElementById('radVal').innerText = this.value;
+        };
+        document.getElementById('recovery').oninput = function() {
+            recoveryTime = parseInt(this.value);
+            document.getElementById('recVal').innerText = (this.value / 1000).toFixed(1);
+        };
+        document.getElementById('deathRate').oninput = function() {
+            deathRate = this.value / 100;
+            document.getElementById('deathVal').innerText = this.value;
+        };
+        document.getElementById('resetButton').onclick = init;
+
+        init();
+        animate();
+    </script>
+</body>
+</html>

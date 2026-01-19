@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Projektile‑Simulation – Good‑Shot‑Nachrichten</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .controls {
+            margin-bottom: 12px;
+        }
+        canvas {
+            border: 2px solid #000;      /* Schwarze Ränder = Wände + Decke */
+            background: #fff;
+        }
+        .counter {
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        #msgBox {
+            margin-left: 15px;
+            font-style: italic;
+            color: #006400;
+        }
+        /* Overlay, das nach 5 Treffern erscheint */
+        #winOverlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            visibility: hidden;
+            z-index: 10;
+        }
+        #winOverlay button {
+            margin-top: 20px;
+            font-size: 1rem;
+            padding: 8px 16px;
+        }
+    </style>
+</head>
+<body>
+
+<h3>Projektile‑Simulation – Good‑Shot‑Nachrichten</h3>
+
+<div class="controls">
+    <!-- Abstand zur Zielscheibe (mind. 5 m) -->
+    <label>
+        Abstand zur Zielscheibe (m):
+        <input id="distanceSlider" type="range" min="5" max="300" value="80">
+        <span id="distanceValue">80</span> m
+    </label>
+    <br>
+
+    <!-- Höhe der Zielscheibe (5 – 125 m) -->
+    <label>
+        Höhe der Zielscheibe (m):
+        <input id="heightSlider" type="range" min="5" max="125" value="20">
+        <span id="heightValue">20</span> m
+    </label>
+    <br>
+
+    <label>
+        Anfangsgeschwindigkeit (m/s):
+        <input id="speedInput" type="number" min="10" max="200" value="50">
+    </label>
+    <br>
+
+    <label>
+        Abschusswinkel (°):
+        <input id="angleInput" type="number" min="10" max="80" value="45">
+    </label>
+    <br>
+
+    <button id="fireBtn">Feuern</button>
+    <button id="resetBtn">Zurücksetzen</button>
+
+    <span class="counter">Schüsse: <span id="shotCount">0</span></span>
+    <span class="counter">Treffer: <span id="hitCount">0</span></span>
+    <span id="msgBox"></span>          <!--  <--  hier erscheint „Good Shot“ / „Good aim“ -->
+</div>
+
+<canvas id="simCanvas" width="800" height="400"></canvas>
+
+<!-- Overlay mit Sieg‑Nachricht und Neustart‑Button -->
+<div id="winOverlay">
+    YOU WON!!!
+    <button id="restartBtn">Neustart</button>
+</div>
+
+<!-- Audio‑Element – Quelle muss durch eine legale Datei ersetzt werden -->
+<audio id="winAudio" preload="auto">
+    <!-- Beispiel‑URL (Platzhalter). Ersetze durch einen eigenen Clip. -->
+    <source src="https://example.com/we-are-the-champions-snippet.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+/* -------------------- Konstanten -------------------- */
+const g = 9.81;                     // Erdbeschleunigung (m/s²)
+const pixelPerMeter = 2.5;          // 1 m → 2.5 px (passt für bis zu 300 m horizontal)
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+
+/* -------------------- UI‑Elemente -------------------- */
+const distanceSlider = document.getElementById('distanceSlider');
+const distanceValue  = document.getElementById('distanceValue');
+const heightSlider   = document.getElementById('heightSlider');
+const heightValue    = document.getElementById('heightValue');
+const speedInput     = document.getElementById('speedInput');
+const angleInput     = document.getElementById('angleInput');
+const fireBtn        = document.getElementById('fireBtn');
+const resetBtn       = document.getElementById('resetBtn');
+const restartBtn     = document.getElementById('restartBtn');
+const shotCountSpan  = document.getElementById('shotCount');
+const hitCountSpan   = document.getElementById('hitCount');
+const msgBox         = document.getElementById('msgBox');
+const winOverlay     = document.getElementById('winOverlay');
+const winAudio       = document.getElementById('winAudio');
+
+/* -------------------- Spiel‑Variablen -------------------- */
+let distance     = Number(distanceSlider.value);                     // horizontaler Abstand (m)
+let targetHeight = Math.max(5, Number(heightSlider.value));         // Höhe (m) – mind. 5 m
+let shotCount    = 0;                                               // Schüsse‑Zähler
+let hitCount     = 0;                                               // Treffer‑Zähler
+let projectile   = null;                                            // Laufzeitdaten des Projektils
+let animationId  = null;
+
+/* -------------------- Zielscheibe -------------------- */
+const targetRadius = 5;   // m
+
+function targetX() { return distance; }
+function targetY() { return Math.max(5, targetHeight); } // Mindesthöhe 5 m
+
+/* -------------------- Wand‑Parameter -------------------- */
+const maxXWorld = canvas.width / pixelPerMeter;    // rechte Wand (m)
+const maxYWorld = canvas.height / pixelPerMeter;   // obere Decke (m)
+
+/* -------------------- Hilfsfunktionen -------------------- */
+function toPxX(m) { return m * pixelPerMeter; }
+function toPxY(m) { return canvas.height - m * pixelPerMeter; }
+
+function drawGround() {
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, toPxY(0));
+    ctx.lineTo(canvas.width, toPxY(0));
+    ctx.stroke();
+}
+
+function drawTarget() {
+    const x = toPxX(targetX());
+    const y = toPxY(targetY());
+    const r = targetRadius * pixelPerMeter;
+
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
+}
+
+function drawProjectile(p) {
+    const x = toPxX(p.x);
+    const y = toPxY(p.y);
+    const r = 5; // Pixelradius
+
+    ctx.fillStyle = '#0000ff';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
+}
+
+function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+/* ---- Nachricht einblenden (1 s) ---- */
+function showMessage(text) {
+    msgBox.textContent = text;
+    // Nach 1 s wieder leeren
+    setTimeout(() => {
+        msgBox.textContent = '';
+    }, 1000);
+}
+
+/* -------------------- Wand‑/Decken‑Logik -------------------- */
+let stuckToWall = false;          // true, solange das Projektil „klebt“
+let wallCollisionTime = 0;        // Timestamp (ms) des Aufpralls
+
+function handleWallCollision(timestamp) {
+    // Linke Wand
+    if (projectile.x <= 0) {
+        projectile.x = 0;
+        projectile.vx = 0;
+        projectile.vy = 0;
+        stuckToWall = true;
+        wallCollisionTime = timestamp;
+        return true;
+    }
+    // Rechte Wand
+    if (projectile.x >= maxXWorld) {
+        projectile.x = maxXWorld;
+        projectile.vx = 0;
+        projectile.vy = 0;
+        stuckToWall = true;
+        wallCollisionTime = timestamp;
+        return true;
+    }
+    // Obere Decke
+    if (projectile.y >= maxYWorld) {
+        projectile.y = maxYWorld;
+        projectile.vx = 0;
+        projectile.vy = 0;
+        stuckToWall = true;
+        wallCollisionTime = timestamp;
+        return true;
+    }
+    return false;
+}
+
+/* -------------------- Reset‑Funktion (gemeinsam für beide Buttons) -------------------- */
+function resetGame() {
+    if (animationId) cancelAnimationFrame(animationId);
+    animationId = null;
+    projectile = null;
+    stuckToWall = false;
+    wallCollisionTime = 0;
+
+    // Zähler zurücksetzen
+    shotCount = 0;
+    hitCount  = 0;
+    shotCountSpan.textContent = shotCount;
+    hitCountSpan.textContent  = hitCount;
+
+    // Slider‑Werte auf Startwerte zurücksetzen
+    distance = 80;
+    targetHeight = 20;
+    distanceSlider.value = distance;
+    heightSlider.value   = targetHeight;
+    distanceValue.textContent = distance;
+    heightValue.textContent   = targetHeight;
+
+    // UI zurücksetzen
+    fireBtn.disabled = false;
+    winOverlay.style.visibility = 'hidden';
+    winAudio.pause();
+    winAudio.currentTime = 0;
+    msgBox.textContent = '';
+
+    // Canvas neu zeichnen
+    clearCanvas();
+    drawGround();
+    drawTarget();
+}
+
+/* -------------------- Schuss‑Logik -------------------- */
+function startSimulation() {
+    // Schuss‑Zähler erhöhen
+    shotCount++;
+    shotCountSpan.textContent = shotCount;
+
+    const v0 = Number(speedInput.value);
+    const angleDeg = Number(angleInput.value);
+    const angleRad = angleDeg * Math.PI / 180;
+
+    projectile = {
+        x: 0,
+        y: 0,
+        vx: v0 * Math.cos(angleRad),
+        vy: v0 * Math.sin(angleRad),
+        t: 0,
+        path: []               // für die Flugspur
+    };
+
+    stuckToWall = false;
+    wallCollisionTime = 0;
+
+    if (animationId) cancelAnimationFrame(animationId);
+    animationId = requestAnimationFrame(step);
+}
+
+/* -------------------- Animationsschleife -------------------- */
+function step(timestamp) {
+    const dt = 0.02; // s
+
+    /* ---- Wenn das Projektil an einer Wand „klebt“ ---- */
+    if (stuckToWall) {
+        if (timestamp - wallCollisionTime >= 1000) {
+            // Nach 1 s freigeben → Schwerkraft wirkt wieder
+            stuckToWall = false;
+            projectile.vy = 0;
+        } else {
+            drawScene();               // nur darstellen
+            animationId = requestAnimationFrame(step);
+            return;
+        }
+    }
+
+    /* ---- Normale Kinematik (wenn nicht „klebt“) ---- */
+    projectile.t += dt;
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt - 0.5 * g * dt * dt;
+    projectile.vy -= g * dt;
+
+    projectile.path.push({ x: projectile.x, y: projectile.y });
+
+    /* ---- Wand‑/Decken‑Kollision prüfen ---- */
+    if (!stuckToWall) {
+        handleWallCollision(timestamp);
+    }
+
+    drawScene();
+
+    /* ---- Treffer‑ bzw. Bodentest ---- */
+    const hit = Math.hypot(projectile.x - targetX(), projectile.y - targetY()) <= targetRadius;
+    const onGround = projectile.y <= 0 && !stuckToWall; // Boden nur prüfen, wenn nicht an Wand
+
+    if (hit) {
+        hitCount++;
+        hitCountSpan.textContent = hitCount;
+
+        /* ---- Nachricht nach 2. und 4. Treffer ---- */
+        if (hitCount === 2)  showMessage('Good Shot');
+        if (hitCount === 4)  showMessage('Good aim');
+
+        /* ---- Nach jedem Treffer: Abstand & Höhe um 30‑100 m zufällig ändern ---- */
+        const deltaDist = (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 70); // -100…-30 oder +30…+100
+        const deltaH    = (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 70);
+
+        distance = Math.min(300, Math.max(5, distance + deltaDist));
+        targetHeight = Math.min(125, Math.max(5, targetHeight + deltaH));
+
+        // UI‑Slider aktualisieren
+        distanceSlider.value = distance;
+        heightSlider.value   = targetHeight;
+        distanceValue.textContent = Math.round(distance);
+        heightValue.textContent   = Math.round(targetHeight);
+
+        /* ---- Sieg‑Bedingung: 5 Treffer ---- */
+        if (hitCount >= 5) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+            fireBtn.disabled = true;               // weitere Schüsse verhindern
+            winOverlay.style.visibility = 'visible';
+            winAudio.play().catch(() => {
+                console.warn('Audio konnte nicht automatisch gestartet werden – Benutzerinteraktion erforderlich.');
+            });
+            return;
+        }
+
+        /* ---- Reset des Projektils auf Anfangsposition ---- */
+        cancelAnimationFrame(animationId);
+        animationId = null;
+        projectile = null;
+        clearCanvas();
+        drawGround();
+        drawTarget();
+        return;
+    } else if (onGround) {
+        // Projektil hat den Boden berührt → zurück zur Startposition
+        cancelAnimationFrame(animationId);
+        animationId = null;
+        projectile = null;
+        clearCanvas();
+        drawGround();
+        drawTarget();
+        return;
+    }
+
+    animationId = requestAnimationFrame(step);
+}
+
+/* Zeichnet alles (Boden, Zielscheibe, Flugbahn, Projektil) */
+function drawScene() {
+    clearCanvas();
+    drawGround();
+    drawTarget();
+
+    // Flugbahn
+    ctx.strokeStyle = '#00aa00';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    projectile.path.forEach((p, i) => {
+        const px = toPxX(p.x);
+        const py = toPxY(p.y);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    drawProjectile(projectile);
+}
+
+/* -------------------- UI‑Event‑Handler -------------------- */
+distanceSlider.addEventListener('input', () => {
+    distance = Number(distanceSlider.value);
+    distanceValue.textContent = distance;
+    if (!animationId) {
+        clearCanvas();
+        drawGround();
+        drawTarget();
+    }
+});
+
+heightSlider.addEventListener('input', () => {
+    targetHeight = Math.max(5, Number(heightSlider.value));
+    heightValue.textContent = targetHeight;
+    if (!animationId) {
+        clearCanvas();
+        drawGround();
+        drawTarget();
+    }
+});
+
+fireBtn.addEventListener('click', startSimulation);
+resetBtn.addEventListener('click', resetGame);
+restartBtn.addEventListener('click', resetGame);
+
+/* -------------------- Initiales Rendering -------------------- */
+drawGround();
+drawTarget();
+</script>
+
+</body>
+</html>

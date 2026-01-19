@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Gravitations‑Simulation – Timer bleibt nach Z2, Auto fährt weiter</title>
+<style>
+  body {font-family: Arial, sans-serif; margin:20px; line-height:1.5;}
+  #mainContainer {display:flex; gap:20px;}
+  #simColumn   {flex:0 0 800px;}
+  #chartColumn {flex:1; display:flex; flex-direction:column; gap:20px;}
+  canvas {background:#fafafa; display:block;}
+  #controls {margin-bottom:12px;}
+  #controls > * {margin-right:12px;}
+  button {padding:4px 10px;}
+  #footer-note {
+    position:fixed; top:8px; right:12px;
+    font-size:0.75rem; color:#555; opacity:0.7;
+    pointer-events:none;
+  }
+  #paramList {margin-top:0; padding-left:20px;}
+  #paramList li {margin-bottom:8px;}
+  #paramList label {display:inline-block; width:120px;}
+  #paramList input {width:80px;}
+</style>
+</head>
+<body>
+
+<h3>Steuerung</h3>
+<div id="controls"><button id="startBtn">Start</button></div>
+
+<div id="mainContainer">
+  <!-- ---------- linke Spalte – Simulation ---------- -->
+  <div id="simColumn">
+    <h3>Parameter (einfach anpassen)</h3>
+    <ol id="paramList">
+      <li>
+        <label for="angle">Winkel (°):</label>
+        <input type="range" id="angle" min="0" max="90" value="45">
+        <span id="angleVal">45</span>°
+      </li>
+      <li>
+        <label for="z1Pos">Z1 (m):</label>
+        <input type="number" id="z1Pos" min="0" step="0.1" value="2">
+      </li>
+      <li>
+        <label for="z2Pos">Z2 (m):</label>
+        <input type="number" id="z2Pos" min="0" step="0.1" value="6">
+      </li>
+      <li>
+        <label for="gravity">Erdbeschleunigung g (m/s²):</label>
+        <input type="number" id="gravity" step="0.01" value="9.81">
+      </li>
+    </ol>
+
+    <h3>Simulation</h3>
+    <canvas id="simCanvas" width="800" height="800"></canvas>
+
+    <div id="info">
+      <p>Timer (Z1 → Z2): <span id="timer">0.00</span> s</p>
+      <p>Strecke zwischen Z1 und Z2: <span id="distZ1Z2">‑</span> m</p>
+    </div>
+  </div>
+
+  <!-- ---------- rechte Spalte – Diagramme ---------- -->
+  <div id="chartColumn">
+    <h3>Diagramm t / s (Zeit vs. Strecke)</h3>
+    <canvas id="chartTS" height="300"></canvas>
+
+    <h3>Diagramm t / v (Zeit vs. Geschwindigkeit)</h3>
+    <canvas id="chartTV" height="300"></canvas>
+  </div>
+</div>
+
+<!-- Chart.js (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+/* -------------------------------------------------
+   Grundkonfiguration
+------------------------------------------------- */
+const canvas   = document.getElementById('simCanvas');
+const ctx      = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Strecke (oben links → unten rechts)
+const startX = 80, startY = 80;
+const trackLengthPx = 600;               // Länge in Pixel
+const totalLengthM  = 8;                 // Gesamtlänge in Meter
+const pxPerMeter    = trackLengthPx / totalLengthM;
+
+// Auto
+const carSize = 20;                      // Pixel (Quadrat)
+let v = 0;                               // Geschwindigkeit (m/s)
+let s = 0;                               // Zurückgelegte Strecke (m)
+
+// Lichtschranken (Meter vom Start)
+let z1Meter = parseFloat(document.getElementById('z1Pos').value);
+let z2Meter = parseFloat(document.getElementById('z2Pos').value);
+
+// Gravitation (kann über Parameterliste geändert werden)
+let g = parseFloat(document.getElementById('gravity').value);
+
+// Timer‑Variablen
+let timerRunning = false;   // läuft gerade?
+let timerStopped = false;   // wurde bereits bei Z2 gestoppt?
+let startTime = 0;
+let elapsed = 0;
+
+// Steuerung
+let running = false;        // true → Animations‑Loop aktiv
+let animationId = null;
+
+/* -------------------------------------------------
+   Diagramme (Chart.js)
+------------------------------------------------- */
+const chartTS = new Chart(document.getElementById('chartTS'), {
+  type: 'line',
+  data: {labels: [], datasets: [{label: 't / s', data: [], borderColor: '#0066ff', fill: false}]},
+  options: {responsive:true,
+    scales:{x:{title:{display:true, text:'Strecke s (m)'}},
+            y:{title:{display:true, text:'Zeit t (s)'}}}}
+});
+const chartTV = new Chart(document.getElementById('chartTV'), {
+  type: 'line',
+  data: {labels: [], datasets: [{label: 't / v', data: [], borderColor: '#ff6600', fill: false}]},
+  options: {responsive:true,
+    scales:{x:{title:{display:true, text:'Geschwindigkeit v (m/s)'}},
+            y:{title:{display:true, text:'Zeit t (s)'}}}}
+});
+
+/* -------------------------------------------------
+   Hilfsfunktionen
+------------------------------------------------- */
+function degToRad(d){ return d*Math.PI/180; }
+
+function getEndPoint(angleDeg){
+  const a = degToRad(angleDeg);
+  return {
+    x: startX + trackLengthPx*Math.cos(a),
+    y: startY + trackLengthPx*Math.sin(a)
+  };
+}
+
+/* -------------------------------------------------
+   Auto zeichnen
+------------------------------------------------- */
+function drawCar(angleDeg){
+  const a = degToRad(angleDeg);
+  const px = s * pxPerMeter;
+  const x = startX + px*Math.cos(a);
+  const y = startY + px*Math.sin(a);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(a);
+  ctx.fillStyle = '#0066cc';
+  ctx.fillRect(-carSize/2, -carSize/2, carSize, carSize);
+  ctx.restore();
+}
+
+/* -------------------------------------------------
+   UI‑Handling (Parameterliste)
+------------------------------------------------- */
+const angleSlider = document.getElementById('angle');
+const angleVal    = document.getElementById('angleVal');
+let currentAngle = parseInt(angleSlider.value);
+angleSlider.addEventListener('input', e=>{
+  currentAngle = parseInt(e.target.value);
+  angleVal.textContent = currentAngle;
+  if (!running) resetSimulation();
+});
+
+document.getElementById('z1Pos').addEventListener('change', e=>{
+  z1Meter = Math.max(0, parseFloat(e.target.value));
+  if (!running) resetSimulation();
+});
+document.getElementById('z2Pos').addEventListener('change', e=>{
+  z2Meter = Math.max(0, parseFloat(e.target.value));
+  if (!running) resetSimulation();
+});
+document.getElementById('gravity').addEventListener('change', e=>{
+  g = parseFloat(e.target.value);
+  if (!running) resetSimulation();
+});
+
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  if (!running) {
+    running = true;
+    timerRunning = false;
+    timerStopped = false;
+    document.getElementById('startBtn').disabled = true;
+    resetSimulation();               // setzt alles zurück und startet die Animation
+  }
+});
+
+/* -------------------------------------------------
+   Haupt‑Loop (Physik + Rendering)
+------------------------------------------------- */
+const fps = 60;
+const dt = 1/fps;               // Zeitschritt in Sekunden
+
+function resetSimulation(){
+  cancelAnimationFrame(animationId);
+  v = 0; s = 0;
+  timerRunning = false;
+  timerStopped = false;
+  elapsed = 0;
+  document.getElementById('timer').textContent = '0.00';
+  chartTS.data.labels = []; chartTS.data.datasets[0].data = [];
+  chartTV.data.labels = []; chartTV.data.datasets[0].data = [];
+  chartTS.update(); chartTV.update();
+  animate();
+}
+
+function drawScene(){
+  ctx.clearRect(0,0,W,H);
+
+  // Strecke
+  const end = getEndPoint(currentAngle);
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
+
+  // Lichtschranken Z1 & Z2
+  const barriers = [
+    {posM:z1Meter, label:'Z1'},
+    {posM:z2Meter, label:'Z2'}
+  ];
+  barriers.forEach(b=>{
+    const a = degToRad(currentAngle);
+    const bx = startX + b.posM*pxPerMeter*Math.cos(a);
+    const by = startY + b.posM*pxPerMeter*Math.sin(a);
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(a);
+    ctx.fillStyle = '#c00';
+    ctx.fillRect(-5, -30, 10, 60);
+    ctx.fillStyle = '#000';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(b.label, 0, -35);
+    ctx.restore();
+  });
+
+  // Auto
+  drawCar(currentAngle);
+
+  // ----------------- Physik -----------------
+  const a = g * Math.sin(degToRad(currentAngle)); // m/s²
+  v += a * dt;
+  s += v * dt;
+
+  // ----------------- Timer & Diagramme -----------------
+  // Start des Timers bei Z1 (nur, wenn er noch nicht gestoppt wurde)
+  if (!timerRunning && !timerStopped && s >= z1Meter && s < z2Meter){
+    timerRunning = true;
+    startTime = performance.now();
+  }
+
+  // Timer läuft – aktualisieren
+  if (timerRunning){
+    elapsed = (performance.now() - startTime) / 1000;
+    document.getElementById('timer').textContent = elapsed.toFixed(2);
+
+    chartTS.data.labels.push(s.toFixed(2));
+    chartTS.data.datasets[0].data.push(elapsed);
+    chartTS.update('none');
+
+    chartTV.data.labels.push(v.toFixed(2));
+    chartTV.data.datasets[0].data.push(elapsed);
+    chartTV.update('none');
+  }
+
+  // **Stop‑Bedingung bei Z2** – Timer wird gestoppt, bleibt aber sichtbar
+  if (!timerStopped && s >= z2Meter){
+    timerRunning = false;
+    timerStopped = true;          // verhindert ein erneutes Starten des Timers
+    // Der aktuelle Wert von `elapsed` bleibt im Display
+  }
+
+  // Gesamtes Ende der Strecke erreichen → Animation komplett stoppen
+  if (s >= totalLengthM){
+    s = totalLengthM;
+    v = 0;
+    running = false;
+    document.getElementById('startBtn').disabled = false;
+  }
+
+  // Abstand Z1‑Z2 (immer anzeigen)
+  const distZ1Z2 = Math.abs(z2Meter - z1Meter).toFixed(2);
+  document.getElementById('distZ1Z2').textContent = distZ1Z2;
+}
+
+/* -------------------------------------------------
+   Animationsschleife
+------------------------------------------------- */
+function animate(){
+  drawScene();
+  if (running) animationId = requestAnimationFrame(animate);
+}
+
+/* -------------------------------------------------
+   Initialer Reset (wartet auf Start‑Knopf)
+------------------------------------------------- */
+resetSimulation();   // setzt alles zurück, startet aber erst nach Klick auf „Start“
+
+</script>
+
+<div id="footer-note">Made by Jeason</div>
+
+</body>
+</html>

@@ -1,0 +1,564 @@
+#Auto Überholung
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Zweiautos — Vogelperspektive mit t–s Diagramm und CSV Export</title>
+<style>
+  :root{
+    --bg:#f3f6f9;
+    --card:#ffffff;
+    --accent:#1572A1;
+    --muted:#6b7280;
+    --road:#333;
+    --lane:#ccc;
+  }
+  body{
+    font-family: Inter, Roboto, Arial, sans-serif;
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: #111827;
+  }
+  h1{ margin: 0 0 10px 0; font-size: 18px; }
+  .app{
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .panel{
+    background: var(--card);
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.06);
+  }
+  .controls label{ display:block; font-size:13px; color:var(--muted); margin-top:8px; }
+  .controls input[type="range"]{ width:100%; }
+  .row{ display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .row input[type="number"]{ width:100%; padding:6px; border-radius:6px; border:1px solid #e5e7eb; }
+  button{
+    background:var(--accent);
+    color:white;
+    border: none;
+    padding:8px 12px;
+    border-radius:6px;
+    cursor:pointer;
+    font-weight:600;
+  }
+  button.secondary{
+    background:#e5e7eb;
+    color:#111827;
+  }
+  .view{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .canvas-card{
+    background:linear-gradient(180deg,#f8fafc,#ffffff);
+    border:1px solid #e6eef6;
+    border-radius:8px;
+    padding:10px;
+  }
+  canvas{ width:100%; height:200px; display:block; border-radius:6px; background:transparent; }
+  .meta{ display:flex; gap:12px; align-items:center; margin-top:6px; color:var(--muted); font-size:13px;}
+  .legend{ display:flex; gap:8px; align-items:center; }
+  .dot{ width:12px; height:8px; display:inline-block; border-radius:3px; }
+  .c1{ background:#ef4444 } /* red */
+  .c2{ background:#06b6d4 } /* cyan */
+  footer{ margin-top:12px; font-size:13px; color:var(--muted); }
+  @media (max-width:900px){
+    .app{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+  <h1>Zweiautos — Vogelperspektive mit t–s Diagramm und CSV-Export</h1>
+  <div class="app">
+    <div class="panel controls">
+      <strong>Parameter</strong>
+      <label for="v1">Geschwindigkeit Auto 1 (m/s)</label>
+      <input id="v1" type="range" min="0" max="40" step="0.1" value="15">
+      <div class="row"><input id="v1_num" type="number" min="0" max="200" step="0.1" value="15"><div style="color:var(--muted);">m/s</div></div>
+
+      <label for="v2">Geschwindigkeit Auto 2 (m/s)</label>
+      <input id="v2" type="range" min="0" max="40" step="0.1" value="10">
+      <div class="row"><input id="v2_num" type="number" min="0" max="200" step="0.1" value="10"><div style="color:var(--muted);">m/s</div></div>
+
+      <label for="s1">Anfangsposition s1 (m)</label>
+      <input id="s1" type="range" min="0" max="200" step="0.5" value="20">
+      <div class="row"><input id="s1_num" type="number" min="0" max="10000" step="0.1" value="20"><div style="color:var(--muted);">m</div></div>
+
+      <label for="s2">Anfangsposition s2 (m)</label>
+      <input id="s2" type="range" min="0" max="200" step="0.5" value="10">
+      <div class="row"><input id="s2_num" type="number" min="0" max="10000" step="0.1" value="10"><div style="color:var(--muted);">m</div></div>
+
+      <label for="sampleHz">Abtastrate (Hz)</label>
+      <input id="sampleHz" type="range" min="1" max="60" step="1" value="10">
+      <div class="row"><input id="sampleHz_num" type="number" min="1" max="60" step="1" value="10"><div style="color:var(--muted);">Hz</div></div>
+
+      <label for="scale">Skalierung (px pro Meter)</label>
+      <input id="scale" type="range" min="1" max="12" step="0.5" value="4">
+      <div class="row"><input id="scale_num" type="number" min="1" max="100" step="0.1" value="4"><div style="color:var(--muted);">px/m</div></div>
+
+      <div class="row" style="margin-top:12px;">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn" class="secondary">Pause</button>
+        <button id="resetBtn" class="secondary">Reset</button>
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <button id="exportBtn">Export CSV (t|s1|s2)</button>
+        <button id="clearBtn" class="secondary">Daten löschen</button>
+      </div>
+
+      <footer>
+        Legende: <span class="legend"><span class="dot c1"></span> Auto 1</span> <span class="legend"><span class="dot c2"></span> Auto 2</span>
+        <div style="margin-top:6px;">Hinweis: Beide Fahrzeuge fahren mit konstanter Geschwindigkeit in Längsrichtung (s-Achse). Vogelperspektive: Straße horizontal.</div>
+      </footer>
+    </div>
+
+    <div class="view">
+      <div class="canvas-card panel">
+        <strong>Vogelperspektive — Straße (Top-Down)</strong>
+        <canvas id="topCanvas" width="900" height="200"></canvas>
+        <div class="meta">
+          <div id="timeLabel">t = 0.0 s</div>
+          <div id="posLabel" style="margin-left:18px;">s1 = 0.0 m, s2 = 0.0 m</div>
+        </div>
+      </div>
+
+      <div class="canvas-card panel">
+        <strong>t–s Diagramm</strong>
+        <canvas id="plotCanvas" width="900" height="240"></canvas>
+        <div class="meta">
+          <div style="display:flex; gap:10px;">
+            <span class="legend"><span class="dot c1"></span> s1(t)</span>
+            <span class="legend"><span class="dot c2"></span> s2(t)</span>
+          </div>
+          <div style="margin-left:auto; color:var(--muted)">Exportformat: "t|s1|s2"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+  Simulation: zwei Autos mit konstanter Geschwindigkeit auf einer zweispurigen Straße.
+  - s in Metern (Entfernung entlang Straße)
+  - v in m/s (konstant)
+  - Vogelperspektive (Straße horizontal), zwei Fahrstreifen (y-Lage fix)
+  - t-s Diagramm wird live geplottet
+  - CSV Export: "t|s1|s2"
+*/
+
+// Elemente
+const v1 = document.getElementById('v1'), v2 = document.getElementById('v2');
+const v1_num = document.getElementById('v1_num'), v2_num = document.getElementById('v2_num');
+const s1_in = document.getElementById('s1'), s2_in = document.getElementById('s2');
+const s1_num = document.getElementById('s1_num'), s2_num = document.getElementById('s2_num');
+const sampleHz = document.getElementById('sampleHz'), sampleHz_num = document.getElementById('sampleHz_num');
+const scale = document.getElementById('scale'), scale_num = document.getElementById('scale_num');
+
+const startBtn = document.getElementById('startBtn'), pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn'), exportBtn = document.getElementById('exportBtn');
+const clearBtn = document.getElementById('clearBtn');
+
+const timeLabel = document.getElementById('timeLabel'), posLabel = document.getElementById('posLabel');
+
+const topCanvas = document.getElementById('topCanvas'), topCtx = topCanvas.getContext('2d');
+const plotCanvas = document.getElementById('plotCanvas'), plotCtx = plotCanvas.getContext('2d');
+
+// Simulation state
+let state = {
+  t: 0,
+  running: false,
+  v1: parseFloat(v1.value),
+  v2: parseFloat(v2.value),
+  s1: parseFloat(s1_in.value),
+  s2: parseFloat(s2_in.value),
+  pxPerM: parseFloat(scale.value),
+  sampleHz: parseFloat(sampleHz.value),
+  samples: [] // {t, s1, s2}
+};
+
+function syncInputs(){
+  v1_num.value = v1.value; v2_num.value = v2.value;
+  s1_num.value = s1_in.value; s2_num.value = s2_in.value;
+  sampleHz_num.value = sampleHz.value;
+  scale_num.value = scale.value;
+}
+syncInputs();
+
+// Two-way bindings
+[v1,v1_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); v1.value = v1_num.value = val; state.v1 = val;
+}));
+[v2,v2_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); v2.value = v2_num.value = val; state.v2 = val;
+}));
+[s1_in,s1_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); s1_in.value = s1_num.value = val; state.s1 = val;
+}));
+[s2_in,s2_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); s2_in.value = s2_num.value = val; state.s2 = val;
+}));
+[sampleHz, sampleHz_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); sampleHz.value = sampleHz_num.value = val; state.sampleHz = val;
+}));
+[scale, scale_num].forEach(el => el.addEventListener('input', ()=>{
+  const val = parseFloat(el.value); scale.value = scale_num.value = val; state.pxPerM = val;
+}));
+
+// Buttons
+startBtn.addEventListener('click', ()=>{ state.running = true; });
+pauseBtn.addEventListener('click', ()=>{ state.running = false; });
+resetBtn.addEventListener('click', ()=>{
+  state.running = false;
+  state.t = 0;
+  // reset positions to input values
+  state.s1 = parseFloat(s1_in.value);
+  state.s2 = parseFloat(s2_in.value);
+  state.samples = [];
+  updateLabels();
+  drawAll();
+});
+clearBtn.addEventListener('click', ()=>{
+  state.samples = [];
+  drawAll();
+});
+exportBtn.addEventListener('click', exportCSV);
+
+// Sampling & animation
+let lastFrame = null;
+let accum = 0;
+let sampleInterval = 1 / state.sampleHz;
+
+// initialize samples with t=0
+function resetAndInit(){
+  state.samples = [];
+  sampleInterval = 1 / state.sampleHz;
+  state.t = 0;
+  state.samples.push({t:0, s1:state.s1, s2:state.s2});
+}
+resetAndInit();
+
+// Main loop
+function loop(timestamp){
+  if (!lastFrame) lastFrame = timestamp;
+  const dtMs = timestamp - lastFrame;
+  lastFrame = timestamp;
+  const dt = dtMs / 1000;
+
+  if (state.running){
+    // update time and positions (continuous)
+    state.t += dt;
+    state.s1 += state.v1 * dt;
+    state.s2 += state.v2 * dt;
+  }
+
+  // sampling at configured rate
+  accum += dt;
+  sampleInterval = 1 / state.sampleHz;
+  while (accum >= sampleInterval){
+    accum -= sampleInterval;
+    // push sample even when paused (so t is constant while paused but we won't advance t)
+    state.samples.push({t: state.t, s1: state.s1, s2: state.s2});
+    // keep samples for plotting - optionally limit memory (not strictly required)
+    if (state.samples.length > 20000) state.samples.shift();
+  }
+
+  updateLabels();
+  drawAll();
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// Drawing functions
+function drawAll(){
+  drawTop();
+  drawPlot();
+}
+
+function drawTop(){
+  const ctx = topCtx;
+  const w = topCanvas.width = topCanvas.clientWidth * devicePixelRatio;
+  const h = topCanvas.height = topCanvas.clientHeight * devicePixelRatio;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const pxPerM = state.pxPerM * devicePixelRatio;
+  const roadH = Math.round(80 * devicePixelRatio);
+  const roadY = (h - roadH) / 2;
+
+  // Background
+  ctx.fillStyle = '#e9eef2';
+  ctx.fillRect(0,0,w,h);
+
+  // Road
+  const roadMargin = 20 * devicePixelRatio;
+  ctx.fillStyle = 'rgba(40,40,40,0.95)';
+  ctx.fillRect(roadMargin, roadY, w - roadMargin*2, roadH);
+
+  // lane divider (middle dashed)
+  ctx.strokeStyle = '#ffd';
+  ctx.lineWidth = 2 * devicePixelRatio;
+  ctx.setLineDash([12*devicePixelRatio, 12*devicePixelRatio]);
+  const midY = roadY + roadH/2;
+  ctx.beginPath();
+  ctx.moveTo(roadMargin, midY);
+  ctx.lineTo(w - roadMargin, midY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // lane boundaries
+  ctx.strokeStyle = '#bbbbbb';
+  ctx.lineWidth = 1 * devicePixelRatio;
+  ctx.strokeRect(roadMargin, roadY, w - roadMargin*2, roadH);
+
+  // draw scale ruler on top
+  ctx.fillStyle = '#fff';
+  ctx.font = `${12 * devicePixelRatio}px sans-serif`;
+  ctx.fillText(`Skalierung: ${state.pxPerM.toFixed(2)} px/m`, roadMargin + 6*devicePixelRatio, roadY + 14*devicePixelRatio);
+
+  // origin (s=0) placed at left inside roadMargin
+  const originX = roadMargin + 10 * devicePixelRatio;
+  // draw ticks every 10 m
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1 * devicePixelRatio;
+  for (let m = 0; m < (w - originX) / pxPerM; m += 10){
+    const x = originX + m * pxPerM;
+    ctx.beginPath();
+    ctx.moveTo(x, roadY);
+    ctx.lineTo(x, roadY + roadH);
+    ctx.stroke();
+    if (m % 50 === 0){
+      ctx.fillStyle = '#fff';
+      ctx.fillText(`${m} m`, x + 4 * devicePixelRatio, roadY + roadH - 6*devicePixelRatio);
+    }
+  }
+
+  // Cars: lane1 = top lane (slightly above mid), lane2 = bottom lane
+  const carW = 28 * devicePixelRatio;
+  const carH = 14 * devicePixelRatio;
+  const laneOffset = 14 * devicePixelRatio;
+
+  // position to canvas x
+  function sx(s){
+    return originX + s * pxPerM;
+  }
+
+  // Auto 1 (rot: to right)
+  const x1 = sx(state.s1);
+  const y1 = midY - laneOffset - carH/2;
+  ctx.save();
+  ctx.translate(x1, y1);
+  // body
+  ctx.fillStyle = '#ef4444';
+  roundRect(ctx, -carW/2, -carH/2, carW, carH, 3*devicePixelRatio);
+  ctx.fill();
+  // windows
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillRect(-carW/4, -carH/4, carW/3, carH/2);
+  ctx.restore();
+
+  // Auto 2
+  const x2 = sx(state.s2);
+  const y2 = midY + laneOffset - carH/2;
+  ctx.save();
+  ctx.translate(x2, y2);
+  ctx.fillStyle = '#06b6d4';
+  roundRect(ctx, -carW/2, -carH/2, carW, carH, 3*devicePixelRatio);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillRect(-carW/4, -carH/4, carW/3, carH/2);
+  ctx.restore();
+
+  // bounding if cars go off-canvas draw arrows
+  ctx.fillStyle = '#222';
+  if (x1 > w - 10*devicePixelRatio){
+    ctx.beginPath(); ctx.moveTo(w - 18*devicePixelRatio, midY - 24*devicePixelRatio); ctx.lineTo(w - 6*devicePixelRatio, midY - 12*devicePixelRatio); ctx.lineTo(w - 18*devicePixelRatio, midY); ctx.fill();
+  }
+  if (x2 > w - 10*devicePixelRatio){
+    ctx.beginPath(); ctx.moveTo(w - 18*devicePixelRatio, midY + 6*devicePixelRatio); ctx.lineTo(w - 6*devicePixelRatio, midY + 18*devicePixelRatio); ctx.lineTo(w - 18*devicePixelRatio, midY + 30*devicePixelRatio); ctx.fill();
+  }
+}
+
+// rounding helper
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+// Plot t-s diagram
+function drawPlot(){
+  const ctx = plotCtx;
+  const w = plotCanvas.width = plotCanvas.clientWidth * devicePixelRatio;
+  const h = plotCanvas.height = plotCanvas.clientHeight * devicePixelRatio;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  // margins
+  const mL = 48 * devicePixelRatio, mR = 12*devicePixelRatio, mT = 12*devicePixelRatio, mB = 36*devicePixelRatio;
+  const pw = w - mL - mR, ph = h - mT - mB;
+
+  // axes background
+  ctx.fillStyle = '#fff';
+  roundRect(ctx, mL-4, mT-4, pw+8, ph+8, 6*devicePixelRatio);
+  ctx.fillStyle = '#fbfdff';
+  roundRect(ctx, mL, mT, pw, ph, 4*devicePixelRatio);
+  ctx.fill();
+
+  // find extents from samples
+  const samples = state.samples.length ? state.samples : [{t:0,s1:state.s1,s2:state.s2}];
+  const tMax = Math.max(...samples.map(s=>s.t), 1);
+  const sMax = Math.max(...samples.map(s=>Math.max(s.s1,s.s2)), 10);
+  const tMin = Math.min(...samples.map(s=>s.t), 0);
+  const sMin = Math.min(...samples.map(s=>Math.min(s.s1,s.s2)), 0);
+
+  // nice padding
+  const sPad = Math.max(2, (sMax - sMin) * 0.08);
+  const tPad = Math.max(0.2, (tMax - tMin) * 0.05);
+
+  const xFor = t => mL + ((t - tMin) / (tMax - tMin + 1e-9)) * pw;
+  const yFor = s => mT + ph - ((s - (sMin - sPad)) / (sMax - sMin + 2*sPad)) * ph;
+
+  // grid lines
+  ctx.strokeStyle = '#eef2f6';
+  ctx.lineWidth = 1 * devicePixelRatio;
+  ctx.beginPath();
+  // vertical grid (time) every nice step
+  const tRange = tMax - tMin + 1e-9;
+  const stepT = niceStep(tRange / 6);
+  for (let tt = Math.ceil(tMin/stepT)*stepT; tt <= tMax + tPad; tt += stepT){
+    const x = xFor(tt);
+    ctx.moveTo(x, mT);
+    ctx.lineTo(x, mT + ph);
+  }
+  // horizontal grid (s)
+  const sRange = sMax - sMin + 1e-9;
+  const stepS = niceStep(sRange / 6);
+  for (let ss = Math.ceil((sMin - sPad)/stepS)*stepS; ss <= sMax + sPad; ss += stepS){
+    const y = yFor(ss);
+    ctx.moveTo(mL, y);
+    ctx.lineTo(mL + pw, y);
+  }
+  ctx.stroke();
+
+  // axes
+  ctx.strokeStyle = '#c6d3df';
+  ctx.lineWidth = 1 * devicePixelRatio;
+  ctx.beginPath();
+  ctx.moveTo(mL, mT); ctx.lineTo(mL, mT + ph);
+  ctx.moveTo(mL, mT + ph); ctx.lineTo(mL + pw, mT + ph);
+  ctx.stroke();
+
+  // axis labels
+  ctx.fillStyle = '#111827';
+  ctx.font = `${12 * devicePixelRatio}px sans-serif`;
+  ctx.fillText('t (s)', mL + pw/2 - 12*devicePixelRatio, h - 8*devicePixelRatio);
+  ctx.save(); ctx.translate(12*devicePixelRatio, mT + ph/2 + 24*devicePixelRatio); ctx.rotate(-Math.PI/2);
+  ctx.fillText('s (m)', 0, 0); ctx.restore();
+
+  // ticks and numbers
+  ctx.fillStyle = '#374151';
+  ctx.font = `${11 * devicePixelRatio}px sans-serif`;
+  // time ticks
+  for (let tt = Math.ceil(tMin/stepT)*stepT; tt <= tMax + tPad; tt += stepT){
+    const x = xFor(tt);
+    ctx.beginPath();
+    ctx.moveTo(x, mT + ph);
+    ctx.lineTo(x, mT + ph + 6*devicePixelRatio);
+    ctx.strokeStyle = '#c6d3df'; ctx.stroke();
+    ctx.fillText(formatNum(tt), x - 8*devicePixelRatio, mT + ph + 18*devicePixelRatio);
+  }
+  // s ticks
+  for (let ss = Math.ceil((sMin - sPad)/stepS)*stepS; ss <= sMax + sPad; ss += stepS){
+    const y = yFor(ss);
+    ctx.beginPath();
+    ctx.moveTo(mL - 6*devicePixelRatio, y);
+    ctx.lineTo(mL, y);
+    ctx.strokeStyle = '#c6d3df'; ctx.stroke();
+    ctx.fillText(Math.round(ss).toString(), 6*devicePixelRatio, y + 4*devicePixelRatio);
+  }
+
+  // plot traces
+  function drawTrace(color, key){
+    ctx.beginPath();
+    ctx.lineWidth = 2.4 * devicePixelRatio;
+    ctx.strokeStyle = color;
+    let started = false;
+    for (let i=0;i<samples.length;i++){
+      const p = samples[i];
+      const x = xFor(p.t);
+      const y = yFor(p[key]);
+      if (!started){ ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  drawTrace('#ef4444', 's1');
+  drawTrace('#06b6d4', 's2');
+
+  // current time marker
+  const curX = xFor(state.t);
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = 1 * devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(curX, mT); ctx.lineTo(curX, mT + ph); ctx.stroke();
+
+  // small legend (colors already in HTML)
+}
+
+// helpers
+function niceStep(range){
+  // returns a "nice" step for grid
+  const raw = Math.pow(10, Math.floor(Math.log10(range)));
+  const r = range / raw;
+  if (r < 1.5) return raw * 0.5;
+  if (r < 3) return raw * 1;
+  if (r < 7) return raw * 2;
+  return raw * 5;
+}
+function formatNum(v){
+  if (Math.abs(v) < 1) return v.toFixed(2);
+  if (Math.abs(v) < 10) return v.toFixed(2);
+  if (Math.abs(v) < 100) return v.toFixed(1);
+  return Math.round(v).toString();
+}
+
+function updateLabels(){
+  timeLabel.textContent = `t = ${state.t.toFixed(2)} s`;
+  posLabel.textContent = `s1 = ${state.s1.toFixed(2)} m, s2 = ${state.s2.toFixed(2)} m`;
+}
+
+// CSV export
+function exportCSV(){
+  if (state.samples.length === 0){
+    alert('Keine Messdaten zum Exportieren. Starte die Simulation oder füge Proben hinzu.');
+    return;
+  }
+  let csv = 't|s1|s2\n';
+  // ensure ascending t and unique rows (they may repeat if paused)
+  // We'll export every sample in stored order
+  for (const row of state.samples){
+    csv += `${row.t.toFixed(4)}|${row.s1.toFixed(6)}|${row.s2.toFixed(6)}\n`;
+  }
+  const blob = new Blob([csv], {type: 'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const date = new Date();
+  const filename = `ts_data_${date.toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// initial draw
+drawAll();
+
+</script>
+</body>
+</html>

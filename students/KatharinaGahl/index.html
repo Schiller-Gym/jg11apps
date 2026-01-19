@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+
+    <title>Kaffee-Abkühlung Simulation (2026)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 650px 300px;
+            gap: 30px;
+        }
+
+        .controls-and-vis {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .slider-container {
+            margin-bottom: 12px;
+        }
+
+        canvas {
+            border: 1px solid black;
+            margin-top: 20px;
+            background-color: #fff;
+        }
+
+        .table-container {
+            max-height: 850px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        table, th, td {
+            border: 1px solid black;
+            padding: 5px;
+            text-align: center;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+        }
+
+        .simulation-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: flex-start;
+            gap: 50px;
+            width: 400px;
+            height: 200px;
+            margin-top: 20px;
+        }
+
+        #kaffeetasse-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            width: 150px;
+            height: 100%;
+        }
+
+        #kaffeetasse {
+            width: 100px;
+            height: 120px;
+            background-color: #f7f7f7;
+            border: 2px solid #333;
+            border-radius: 2px 2px 50px 50px;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        #kaffee-fuellung {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #6f4e37;
+            transition: height 0.3s;
+            border-radius: 0 0 40px 40px;
+        }
+
+        #tassenhenkel {
+            position: absolute;
+            right: -30px;
+            top: 20px;
+            width: 25px;
+            height: 50px;
+            border: 8px solid #333;
+            border-left: 8px solid transparent;
+            border-radius: 0 50% 50% 0;
+            z-index: -1;
+        }
+
+        #thermometer-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #thermometer {
+            width: 30px;
+            height: 180px;
+            background-color: #eee;
+            position: relative;
+            border: 2px solid #333;
+            border-radius: 15px 15px 5px 5px;
+            overflow: hidden;
+        }
+
+        #mercury {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            background-color: red; 
+        }
+
+        #temp-label {
+            margin-top: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Simulation: Abkühlung einer Kaffeetasse (2026)</h1>
+
+<div class="main-layout">
+    <div class="controls-and-vis">
+        <div class="slider-container">
+            Kaffeemenge (ml):
+            <input type="range" id="menge" min="100" max="500" value="250">
+            <span id="mengeWert">250</span>
+        </div>
+
+        <div class="slider-container">
+            Anfangstemperatur Kaffee (°C):
+            <input type="range" id="tempKaffee" min="40" max="95" value="85">
+            <span id="tempKaffeeWert">85</span>
+        </div>
+
+        <div class="slider-container">
+            Raumtemperatur (°C):
+            <input type="range" id="tempRaum" min="0" max="30" value="20">
+            <span id="tempRaumWert">20</span>
+        </div>
+
+        <div class="slider-container">
+            Isolation der Tasse:
+            <input type="range" id="isolation" min="1" max="10" value="5">
+            <span id="isolationWert">5</span>
+        </div>
+
+        <div class="slider-container">
+            Zeitfaktor (Geschwindigkeit):
+            <input type="range" id="zeitFaktor" min="1" max="4" value="1">
+            <span id="zeitFaktorWert">1</span>x
+        </div>
+
+        <button onclick="simulate()" style="width: 200px; padding: 10px;">Simulation starten</button>
+
+        <div class="simulation-container">
+            <div id="kaffeetasse-container">
+                <div id="kaffeetasse">
+                    <div id="kaffee-fuellung"></div>
+                    <div id="tassenhenkel"></div>
+                </div>
+            </div>
+            <div id="thermometer-wrapper">
+                <div id="thermometer">
+                    <div id="mercury"></div>
+                </div>
+                <div id="temp-label"><span id="aktuelleTemp">--</span> °C</div>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <h2>Virtuelle Zeit: <span id="stopwatch">00:00</span></h2>
+            </div>
+        </div>
+
+        <canvas id="diagramm" width="600" height="400"></canvas>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Zeit (min)</th>
+                    <th>Temp (°C)</th>
+                </tr>
+            </thead>
+            <tbody id="tabelle"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let simInterval;
+let virtualMinutes = 0;
+let currentT = 0;
+let datenHistory = [];
+
+const mengeInput = document.getElementById("menge");
+const tempKaffeeInput = document.getElementById("tempKaffee");
+const tempRaumInput = document.getElementById("tempRaum");
+const isolationInput = document.getElementById("isolation");
+const zeitFaktorInput = document.getElementById("zeitFaktor");
+
+const kaffeetasseElement = document.getElementById('kaffeetasse');
+const kaffeeFuellung = document.getElementById('kaffee-fuellung');
+const aktuelleTempAnzeige = document.getElementById('aktuelleTemp');
+const mercury = document.getElementById('mercury');
+const stopwatch = document.getElementById('stopwatch');
+
+function simulate() {
+    clearInterval(simInterval);
+    virtualMinutes = 0;
+    datenHistory = [];
+    document.getElementById("tabelle").innerHTML = "";
+    
+    const zeitFaktor = parseInt(zeitFaktorInput.value);
+    const menge = parseFloat(mengeInput.value);
+    const T_raum = parseFloat(tempRaumInput.value);
+    const isolation = parseFloat(isolationInput.value);
+    currentT = parseFloat(tempKaffeeInput.value);
+    
+    const zeitMax = 60 * zeitFaktor;
+    const k = (1 / isolation) * (250 / menge) * 0.08;
+
+    kaffeeFuellung.style.height = (menge / 500 * 100) + "%";
+    kaffeetasseElement.style.borderWidth = isolation + "px";
+
+    simInterval = setInterval(() => {
+        datenHistory.push({t: virtualMinutes, T: currentT});
+        updateUI(virtualMinutes, currentT, zeitMax);
+        currentT = currentT - k * (currentT - T_raum);
+        virtualMinutes++;
+
+        if (virtualMinutes > zeitMax) {
+            clearInterval(simInterval);
+        }
+    }, 100 / zeitFaktor);
+}
+
+function updateUI(min, temp, zeitMax) {
+    const heightPercent = Math.min(Math.max(temp, 0), 100);
+    mercury.style.height = `${heightPercent}%`;
+    aktuelleTempAnzeige.textContent = temp.toFixed(1);
+    const hue = (temp / 100) * 0 + (1 - temp / 100) * 240;
+    mercury.style.backgroundColor = `hsl(${hue}, 80%, 50%)`;
+
+    const h = String(Math.floor(min / 60)).padStart(2, '0');
+    const m = String(min % 60).padStart(2, '0');
+    stopwatch.textContent = `${h}:${m}`;
+
+    zeichneDiagramm(datenHistory, zeitMax);
+
+    const row = `<tr><td>${min}</td><td>${temp.toFixed(1)}</td></tr>`;
+    document.getElementById("tabelle").insertAdjacentHTML('afterbegin', row);
+}
+
+function zeichneDiagramm(daten, zeitMax) {
+    const canvas = document.getElementById("diagramm");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "12px Arial";
+    ctx.fillStyle = "black";
+
+    // Achsen
+    ctx.beginPath();
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 1;
+    ctx.moveTo(60, 20); ctx.lineTo(60, 350); ctx.lineTo(580, 350);
+    ctx.stroke();
+
+    // Beschriftung X-Achse
+    const schritte = 6;
+    for (let i = 0; i <= zeitMax; i += (zeitMax / schritte)) {
+        const xPos = 60 + (i / zeitMax) * 520;
+        ctx.fillText(Math.round(i), xPos - 5, 365);
+        ctx.moveTo(xPos, 350); ctx.lineTo(xPos, 355); ctx.stroke();
+    }
+    ctx.fillText("Zeit (min)", 300, 390);
+
+    // Beschriftung Y-Achse
+    for (let i = 0; i <= 100; i += 20) {
+        const yPos = 350 - (i / 100) * 330;
+        ctx.fillText(i, 35, yPos + 5);
+        ctx.moveTo(55, yPos); ctx.lineTo(60, yPos); ctx.stroke();
+    }
+
+    // Achsenbezeichnung Y-Achse (vertikal)
+    ctx.save();
+    ctx.translate(20, 210);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText("Temperatur (°C)", 0, 0);
+    ctx.restore();
+
+    // Datenlinie
+    if (daten.length < 1) return;
+    ctx.beginPath();
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    daten.forEach((d, i) => {
+        const x = 60 + (d.t / zeitMax) * 520;
+        const y = 350 - (d.T / 100) * 330;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+}
+
+function updateWerte() {
+    document.getElementById("mengeWert").textContent = mengeInput.value;
+    document.getElementById("tempKaffeeWert").textContent = tempKaffeeInput.value;
+    document.getElementById("tempRaumWert").textContent = tempRaumInput.value;
+    document.getElementById("isolationWert").textContent = isolationInput.value;
+    document.getElementById("zeitFaktorWert").textContent = zeitFaktorInput.value;
+    kaffeetasseElement.style.borderWidth = isolationInput.value + "px";
+}
+
+document.querySelectorAll("input[type=range]").forEach(s => s.addEventListener("input", updateWerte));
+updateWerte();
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+

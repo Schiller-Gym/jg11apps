@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Bremsweg-Simulation</title>
+<style>
+body { font-family: Arial; background: linear-gradient(#cce0ff,#fff); }
+h1 { text-align:center; color:#004080; }
+.controls,.info,.school{max-width:1000px;margin:20px auto;padding:20px;background:#f0f8ff;border-radius:10px;box-shadow:0 5px 10px rgba(0,0,0,0.1);}
+.controls{display:grid;grid-template-columns:repeat(5,1fr);gap:15px;}
+label{font-weight:bold;color:#003366;}
+button{padding:10px;font-size:16px;border:none;border-radius:5px;background:#004080;color:white;cursor:pointer;}
+button:hover{background:#0066cc;}
+.road{position:relative;width:95%;height:140px;margin:30px auto;background:#555;border-radius:10px;overflow:hidden;box-shadow:inset 0 -10px 20px rgba(0,0,0,0.3);}
+.lane{position:absolute;top:65px;width:100%;height:4px;background:repeating-linear-gradient(to right,white,white 20px,transparent 20px,transparent 40px);}
+.roadLabel{position:absolute;top:10px;left:10px;font-weight:bold;color:white;text-shadow:1px 1px 2px black;}
+.car{position:absolute;bottom:25px;left:0;width:80px;height:30px;background:red;border-radius:8px;border:2px solid darkred;z-index:2;}
+.car::before{content:"";position:absolute;top:-18px;left:15px;width:45px;height:18px;background:darkred;border-radius:6px 6px 0 0;}
+.wheel{position:absolute;bottom:-10px;width:16px;height:16px;background:black;border-radius:50%;}
+.wheel.left{left:10px;} .wheel.right{right:10px;}
+.reaction{position:absolute;bottom:25px;height:30px;background:yellow;opacity:0.5;border-radius:5px;z-index:1;}
+.brake{position:absolute;bottom:25px;height:30px;background:orange;opacity:0.5;border-radius:5px;z-index:1;}
+canvas{border:1px solid #ccc;background:#f9f9f9;}
+.school{display:none;line-height:1.6;}
+</style>
+</head>
+<body>
+<h1>🚗 Bremsweg-Simulation</h1>
+
+<div class="controls">
+<div><label>Geschwindigkeit v (km/h)</label><br><input type="range" id="speed" min="30" max="180" value="100"><div id="speedVal"></div></div>
+<div><label>Straßenbelag</label><br><select id="roadType"><option value="0.2">❄️ Eis</option><option value="0.8" selected>🛣️ Asphalt</option></select></div>
+<div><label>Masse m (kg)</label><br><input type="range" id="mass" min="500" max="2500" step="100" value="1000"><div id="massVal"></div></div>
+<div><button onclick="start()">▶ Start</button><button onclick="stop()">⏹ Stop</button><button onclick="reset()">🔄 Reset</button><button onclick="toggleSchool()">🎓 Schulmodus</button></div>
+</div>
+
+<div class="road" id="road">
+<div class="roadLabel" id="roadLabel">Asphalt</div>
+<div class="lane"></div>
+<div class="reaction" id="reactionBar"></div>
+<div class="brake" id="brakeBar"></div>
+<div class="car" id="car"><div class="wheel left"></div><div class="wheel right"></div></div>
+</div>
+
+<div class="info">
+<p><strong>Verzögerung a:</strong> <span id="aOut">–</span> m/s²</p>
+<p><strong>Bremszeit:</strong> <span id="brakeTime">0.00</span> s</p>
+<p><strong>Reaktionsweg:</strong> <span id="reactionOut">0.00</span> m</p>
+<p><strong>Bremsweg:</strong> <span id="brakeOut">0.00</span> m</p>
+<p><strong>Masse:</strong> <span id="massOut">–</span> kg</p>
+</div>
+
+<div class="info">
+<h3>📈 s-t-Diagramm</h3>
+<canvas id="chart" width="900" height="350"></canvas>
+<p><strong>x-Achse:</strong> Zeit t (s) &nbsp; | &nbsp; <strong>y-Achse:</strong> Weg s (m)</p>
+</div>
+
+<div class="school" id="school">
+<h3>🎓 Schulmodus – Physik</h3>
+<p><strong>Reaktionsphase:</strong> s_r = v · t_reaktion</p>
+<p><strong>Bremsphase:</strong> s_b = v² / (2 · a) ; a = μ · g</p>
+<p><strong>Masse:</strong> m beeinflusst die Kräfte: F = m·a = μ·m·g, Bremsweg hängt physikalisch nicht von m ab.</p>
+</div>
+
+<script>
+const g=9.81, reactionTime=1.0, dt=0.02;
+let interval=null, points=[];
+
+const speed=document.getElementById("speed"), speedVal=document.getElementById("speedVal");
+const roadType=document.getElementById("roadType"), roadLabel=document.getElementById("roadLabel");
+const mass=document.getElementById("mass"), massVal=document.getElementById("massVal"), massOut=document.getElementById("massOut");
+const car=document.getElementById("car"), road=document.getElementById("road");
+const reactionBar=document.getElementById("reactionBar"), brakeBar=document.getElementById("brakeBar");
+const chart=document.getElementById("chart");
+const brakeTimeOut=document.getElementById("brakeTime"), aOut=document.getElementById("aOut");
+const reactionOut=document.getElementById("reactionOut"), brakeOut=document.getElementById("brakeOut");
+const school=document.getElementById("school");
+
+function updateLabels(){ speedVal.textContent=speed.value+" km/h"; }
+speed.addEventListener("input",updateLabels); updateLabels();
+function updateMassLabel(){ massVal.textContent=mass.value+" kg"; }
+mass.addEventListener("input",updateMassLabel); updateMassLabel();
+roadType.addEventListener("change",()=>{roadLabel.textContent=roadType.selectedOptions[0].text;});
+
+function start(){
+    reset();
+    const v0 = Number(speed.value)/3.6, mu=Number(roadType.value), m=Number(mass.value);
+    const a = mu*g;
+    aOut.textContent=a.toFixed(2); massOut.textContent=m;
+
+    const s_reaction=v0*reactionTime, s_brake=(v0*v0)/(2*a), s_total=s_reaction+s_brake;
+
+    const roadWidth = road.offsetWidth - car.offsetWidth;
+    const pixelsPerMeter = roadWidth / 200; // Max 200 m auf die Straße
+
+    let t=0, brakeTime=0;
+
+    interval=setInterval(()=>{
+        let s=0;
+        if(t<reactionTime){ s=v0*t; }
+        else{
+            const tb=t-reactionTime;
+            const v = Math.max(v0 - a*tb,0);
+            if(v===0){ s=s_total; brakeTime=tb; stop(); }
+            else s=s_reaction + (v0*tb - 0.5*a*tb*tb);
+            brakeTime=tb;
+        }
+
+        car.style.left = Math.min(s*pixelsPerMeter, roadWidth)+"px";
+        reactionBar.style.width = Math.min(s_reaction*pixelsPerMeter, roadWidth)+"px";
+        brakeBar.style.left = Math.min(s_reaction*pixelsPerMeter, roadWidth)+"px";
+        brakeBar.style.width = Math.min((s-s_reaction)*pixelsPerMeter, roadWidth)+"px";
+
+        brakeTimeOut.textContent=brakeTime.toFixed(2);
+        reactionOut.textContent=s_reaction.toFixed(2);
+        brakeOut.textContent=s_brake.toFixed(2);
+
+        points.push({t,s});
+        drawChart();
+        t+=dt;
+    }, dt*1000);
+}
+
+function drawChart(){
+    const ctx=chart.getContext("2d");
+    ctx.clearRect(0,0,chart.width,chart.height);
+    const originX=60, originY=300, xScale=80, yScale=2;
+    ctx.strokeStyle="#ddd"; ctx.font="12px Arial"; ctx.fillStyle="black";
+    for(let i=0;i<=10;i++){ const x=originX+i*xScale; ctx.beginPath(); ctx.moveTo(x,originY); ctx.lineTo(x,40); ctx.stroke(); ctx.fillText(i+" s",x-8,originY+20);}
+    for(let s=0;s<=200;s+=20){ const y=originY-s*yScale; ctx.beginPath(); ctx.moveTo(originX,y); ctx.lineTo(850,y); ctx.stroke(); ctx.fillText(s+" m",20,y+4);}
+    ctx.strokeStyle="black"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(originX,originY); ctx.lineTo(850,originY); ctx.moveTo(originX,originY); ctx.lineTo(originX,40); ctx.stroke();
+    ctx.fillText("Zeit t (s)",820,originY+40); ctx.fillText("Weg s (m)",10,30);
+    ctx.beginPath(); points.forEach((p,i)=>{ const x=originX+p.t*xScale; const y=originY-p.s*yScale; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.strokeStyle="blue"; ctx.lineWidth=2; ctx.stroke();
+}
+
+function stop(){ clearInterval(interval); interval=null; }
+
+function reset(){
+    stop(); car.style.left="0px"; reactionBar.style.width="0px";
+    brakeBar.style.width="0px"; brakeBar.style.left="0px";
+    brakeTimeOut.textContent="0.00"; reactionOut.textContent="0.00"; brakeOut.textContent="0.00";
+    points=[]; drawChart();
+}
+
+function toggleSchool(){ school.style.display = school.style.display==="block"?"none":"block"; }
+</script>
+</body>
+</html>
+
+
+
