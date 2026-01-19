@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Anhalteweg Simulation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui;
+  background:#0f172a;
+  color:#e5e7eb;
+}
+h1{
+  text-align:center;
+  margin:18px;
+}
+.wrapper{
+  display:grid;
+  grid-template-columns:360px 1fr;
+  gap:20px;
+  padding:20px;
+}
+.panel{
+  background:#111827;
+  border-radius:12px;
+  padding:18px;
+}
+label{
+  display:block;
+  margin-top:12px;
+}
+input[type=range]{
+  width:100%;
+}
+.value{
+  float:right;
+}
+button{
+  width:100%;
+  margin-top:12px;
+  padding:10px;
+  border-radius:8px;
+  border:none;
+  background:#2563eb;
+  color:white;
+  cursor:pointer;
+}
+.scene{
+  position:relative;
+  height:320px;
+  background:#020617;
+  border-radius:14px;
+  overflow:hidden;
+}
+.road{
+  position:absolute;
+  bottom:60px;
+  left:0;
+  right:0;
+  height:140px;
+  background:#2b2b2b;
+}
+.mark{
+  position:absolute;
+  bottom:60px;
+  height:140px;
+}
+.react{
+  background:rgba(250,204,21,.35);
+}
+.brake{
+  background:rgba(239,68,68,.35);
+}
+.car{
+  position:absolute;
+  bottom:100px;
+  width:70px;
+  height:32px;
+  background:#2563eb;
+  border-radius:8px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  color:white;
+  font-weight:700;
+}
+.readout{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+  margin-top:14px;
+}
+.card{
+  background:#020617;
+  padding:10px;
+  border-radius:8px;
+  text-align:center;
+}
+.card span{
+  font-size:18px;
+  font-weight:600;
+}
+</style>
+</head>
+
+<body>
+<h1>Anhalteweg Simulation – Reaktionsweg + Bremsweg</h1>
+
+<div class="wrapper">
+
+<!-- Panel mit Steuerung -->
+<div class="panel">
+<label>Geschwindigkeit <span class="value" id="vOut">50 km/h</span></label>
+<input id="vRange" type="range" min="10" max="160" value="50">
+
+<label>Masse <span class="value" id="mOut">1200 kg</span></label>
+<input id="mRange" type="range" min="800" max="3000" step="50" value="1200">
+
+<label>Reaktionszeit <span class="value" id="tROut">1.0 s</span></label>
+<input id="tRRange" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
+
+<label>Straßenbedingung:</label>
+<div style="display:flex;gap:10px;margin-top:6px;">
+  <label><input type="radio" name="road" value="asphalt" checked> Asphalt</label>
+  <label><input type="radio" name="road" value="ice"> Eis</label>
+</div>
+
+<button id="startBtn">▶ Start</button>
+<button id="resetBtn" style="background:#374151">⟲ Reset</button>
+</div>
+
+<!-- Szene mit Auto -->
+<div>
+<div class="scene">
+  <div class="road"></div>
+  <div class="mark react" id="reactMark"></div>
+  <div class="mark brake" id="brakeMark"></div>
+  <div class="car" id="car">🚗</div>
+</div>
+
+<!-- Readout der Werte -->
+<div class="readout">
+  <div class="card"><span id="tVal">0.0</span><br>Zeit (s)</div>
+  <div class="card"><span id="sR">0.0</span><br>Reaktionsweg (m)</div>
+  <div class="card"><span id="sB">0.0</span><br>Bremsweg (m)</div>
+  <div class="card"><span id="sG">0.0</span><br>Anhalteweg (m)</div>
+</div>
+</div>
+</div>
+
+<script>
+// --- Physik ---
+const g = 9.81; // Erdbeschleunigung
+const muValues = { asphalt:0.7, ice:0.15 };
+
+// DOM
+const car = document.getElementById("car");
+const reactMark = document.getElementById("reactMark");
+const brakeMark = document.getElementById("brakeMark");
+const sREl = document.getElementById("sR");
+const sBEl = document.getElementById("sB");
+const sGEl = document.getElementById("sG");
+const tValEl = document.getElementById("tVal");
+const vOut = document.getElementById("vOut");
+const mOut = document.getElementById("mOut");
+const tROut = document.getElementById("tROut");
+
+// Inputs
+const vRange = document.getElementById("vRange");
+const mRange = document.getElementById("mRange");
+const tRRange = document.getElementById("tRRange");
+const startBtn = document.getElementById("startBtn");
+const resetBtn = document.getElementById("resetBtn");
+const roadRadios = document.getElementsByName("road");
+
+let running=false, anim;
+
+// --- Start Simulation ---
+function start(){
+  if(running) return;
+  running=true;
+
+  let road = Array.from(roadRadios).find(r=>r.checked).value;
+  const mu = muValues[road];
+
+  const v0 = vRange.value/3.6; // m/s
+  const m = +mRange.value;
+  const tR = +tRRange.value;
+
+  const a = -(mu*g); // Bremsbeschleunigung
+
+  // Skalierung
+  const sceneW = document.querySelector(".scene").clientWidth-40;
+  const sBrakeTotal = v0*v0/(2*Math.abs(a));
+  const sTotalMax = v0*tR + sBrakeTotal;
+  const pxPerM = sceneW/sTotalMax;
+
+  // Initialwerte
+  let t=0, v=v0, s=0;
+  let sReact=0, sBrake=0;
+  const dt=0.016;
+
+  function step(){
+    t+=dt;
+
+    if(t<=tR){
+      s+=v*dt;
+      sReact=s;
+    }else if(v>0){
+      v+=a*dt;
+      if(v<0)v=0;
+      s+=v*dt;
+      sBrake=s-sReact;
+    }
+
+    // Visualisierung
+    car.style.left = (s*pxPerM)+"px";
+    reactMark.style.width = (sReact*pxPerM)+"px";
+    brakeMark.style.left = (sReact*pxPerM)+"px";
+    brakeMark.style.width = (sBrake*pxPerM)+"px";
+
+    // Readout
+    tValEl.textContent = t.toFixed(1);
+    sREl.textContent = sReact.toFixed(2);
+    sBEl.textContent = sBrake.toFixed(2);
+    sGEl.textContent = (sReact+sBrake).toFixed(2);
+
+    if(v>0) anim=requestAnimationFrame(step);
+    else running=false;
+  }
+  step();
+}
+
+// --- Reset ---
+function reset(){
+  cancelAnimationFrame(anim);
+  running=false;
+  car.style.left="0px";
+  reactMark.style.width="0px";
+  brakeMark.style.width="0px";
+  brakeMark.style.left="0px";
+  tValEl.textContent=sREl.textContent=sBEl.textContent=sGEl.textContent="0.0";
+}
+
+// --- Event Listeners ---
+startBtn.onclick=start;
+resetBtn.onclick=reset;
+vRange.oninput=()=>vOut.textContent=vRange.value+" km/h";
+mRange.oninput=()=>mOut.textContent=mRange.value+" kg";
+tRRange.oninput=()=>tROut.textContent=tRRange.value+" s";
+
+</script>
+</body>
+</html>

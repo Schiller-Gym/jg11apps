@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Würfel‑Kollisions‑Simulator mit Diagrammen, Pause & Wasserzeichen</title>
+<style>
+  body {font-family:Arial,Helvetica,sans-serif; background:#f0f0f0; margin:20px; position:relative;}
+  #ui {margin-bottom:15px;}
+  label {margin-right:12px;}
+  canvas, .chartCanvas {background:#fff; border:1px solid #999; display:block;}
+  .chartContainer {margin-top:20px;}
+  .info {margin-top:10px;}
+  .slider {vertical-align:middle;}
+  button {padding:4px 8px; margin-right:8px;}
+  /* Wasserzeichen */
+  #watermark {
+    position:fixed;
+    right:10px;
+    bottom:10px;
+    font-size:10px;
+    color:#777;
+    pointer-events:none;
+    opacity:0.6;
+  }
+</style>
+<!-- Chart.js (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<h3>Würfel‑Kollisions‑Simulator (mit Live‑Diagrammen, Pause & Wasserzeichen)</h3>
+
+<div id="ui">
+  <label>Masse links (kg):
+    <input type="number" id="mLeft" value="1" step="0.1">
+  </label>
+  <label>Masse rechts (kg):
+    <input type="number" id="mRight" value="1" step="0.1">
+  </label>
+  <label>Start‑Geschwindigkeit (nach links) (m/s):
+    <input type="number" id="v0" value="2" step="0.1">
+  </label>
+  <label>Reibungsprofil:
+    <select id="friction">
+      <option value="0">Keine (Vakuum)</option>
+      <option value="0.6">Erde (µ≈0.6)</option>
+      <option value="0.1">Mond (µ≈0.1)</option>
+    </select>
+  </label>
+  <label>Zeit‑Skala:
+    <input type="range" id="timeScale" min="0.1" max="3" step="0.1" value="1" class="slider">
+    <span id="scaleVal">1×</span>
+  </label>
+  <button id="startBtn">Start</button>
+  <button id="pauseBtn" disabled>Pause</button>
+</div>
+
+<!-- Simulations‑Canvas -->
+<canvas id="simCanvas" width="1200" height="300"></canvas>
+
+<div class="info">
+  <p>Wand: <strong>links</strong> (x = 0).<br>
+  Linker Würfel: <strong>rot</strong>, 30 px von der Wand.<br>
+  Blauer Würfel fährt von rechts nach links.<br>
+  <span id="collisionCount">Kollisionen: 0</span></p>
+</div>
+
+<!-- Diagramme -->
+<div class="chartContainer"><canvas id="velChart" class="chartCanvas" height="150"></canvas></div>
+<div class="chartContainer"><canvas id="keChart" class="chartCanvas" height="150"></canvas></div>
+<div class="chartContainer"><canvas id="momChart" class="chartCanvas" height="150"></canvas></div>
+
+<!-- Wasserzeichen -->
+<div id="watermark">made by eljas diekmann</div>
+
+<script>
+/* --------------------------------------------------------------
+   Konstanten
+   -------------------------------------------------------------- */
+const PIXEL_PER_METER = 100;          // 1 m = 100 px
+const WALL_X = 0;                     // x‑Koordinate der linken Wand
+const LEFT_CUBE_X0 = 30;              // Abstand des linken Würfels von der Wand
+const GAP_BETWEEN_CUBES = 200;        // Abstand zwischen den Würfeln
+const CUBE_SIZE = 40;                 // Seitenlänge der Würfel
+const BASE_TIME_STEP = 0.001;         // Grund‑Zeitschritt (s)
+const ELASTIC_COEFF = 1.0;            // 1 = perfekt elastisch
+const g = 9.81;                       // Erdbeschleunigung (m/s²)
+
+/* --------------------------------------------------------------
+   Laufzeitvariablen (werden beim Start gesetzt)
+   -------------------------------------------------------------- */
+let mL, mR, mu;                       // Massen & Reibungs‑µ
+let xL, xR;                           // Positionen (Pixel)
+let vL = 0, vRcur;                    // Geschwindigkeiten (Pixel/s)
+let collisions = 0;
+let running = false;                  // true → Simulations‑Loop läuft
+let paused = false;                   // true → momentan pausiert
+let lastTime = null;
+let timeScale = 1.0;                  // 1 = Echtzeit
+
+/* Daten für die Diagramme ------------------------------------------------ */
+let timeData = [], vLData = [], vRData = [], keLData = [], keRData = [], pLData = [], pRData = [];
+
+/* --------------------------------------------------------------
+   Canvas‑Setup
+   -------------------------------------------------------------- */
+const simCanvas = document.getElementById('simCanvas');
+const ctx = simCanvas.getContext('2d');
+
+/* --------------------------------------------------------------
+   Chart‑Initialisierung (Chart.js)
+   -------------------------------------------------------------- */
+const velChart = new Chart(document.getElementById('velChart'), {
+  type: 'line',
+  data: {
+    labels: timeData,
+    datasets: [
+      {label:'v₁ (rot)', borderColor:'#d33', data:vLData, fill:false},
+      {label:'v₂ (blau)', borderColor:'#33d', data:vRData, fill:false}
+    ]
+  },
+  options:{scales:{x:{title:{display:true,text:'Zeit (s)'}},
+                  y:{title:{display:true,text:'Geschwindigkeit (m/s)'}}}}
+});
+
+const keChart = new Chart(document.getElementById('keChart'), {
+  type: 'line',
+  data: {
+    labels: timeData,
+    datasets: [
+      {label:'Eₖ₁ (rot)', borderColor:'#d33', data:keLData, fill:false},
+      {label:'Eₖ₂ (blau)', borderColor:'#33d', data:keRData, fill:false}
+    ]
+  },
+  options:{scales:{x:{title:{display:true,text:'Zeit (s)'}},
+                  y:{title:{display:true,text:'Energie (J)'}}}}
+});
+
+const momChart = new Chart(document.getElementById('momChart'), {
+  type: 'line',
+  data: {
+    labels: timeData,
+    datasets: [
+      {label:'p₁ (rot)', borderColor:'#d33', data:pLData, fill:false},
+      {label:'p₂ (blau)', borderColor:'#33d', data:pRData, fill:false}
+    ]
+  },
+  options:{scales:{x:{title:{display:true,text:'Zeit (s)'}},
+                  y:{title:{display:true,text:'Impuls (kg·m/s)'}}}}
+});
+
+/* --------------------------------------------------------------
+   UI‑Handler
+   -------------------------------------------------------------- */
+document.getElementById('timeScale').addEventListener('input', e => {
+  timeScale = parseFloat(e.target.value);
+  document.getElementById('scaleVal').textContent = `${timeScale.toFixed(1)}×`;
+});
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  // Eingaben einlesen
+  mL = parseFloat(document.getElementById('mLeft').value);
+  mR = parseFloat(document.getElementById('mRight').value);
+  const v0 = parseFloat(document.getElementById('v0').value);
+  mu = parseFloat(document.getElementById('friction').value);
+  timeScale = parseFloat(document.getElementById('timeScale').value);
+  document.getElementById('scaleVal').textContent = `${timeScale.toFixed(1)}×`;
+
+  // Anfangszustand
+  xL = LEFT_CUBE_X0;
+  xR = xL + GAP_BETWEEN_CUBES + CUBE_SIZE;
+  vL = 0;
+  vRcur = -v0 * PIXEL_PER_METER;   // nach links (negativ)
+  collisions = 0;
+  document.getElementById('collisionCount').textContent = `Kollisionen: ${collisions}`;
+
+  // Daten‑Arrays zurücksetzen
+  timeData.length = vLData.length = vRData.length = keLData.length =
+  keRData.length = pLData.length = pRData.length = 0;
+  velChart.update(); keChart.update(); momChart.update();
+
+  // UI‑Zustand
+  running = true;
+  paused = false;
+  document.getElementById('pauseBtn').disabled = false;
+  document.getElementById('pauseBtn').textContent = 'Pause';
+
+  // Simulationsschleife starten
+  lastTime = null;
+  requestAnimationFrame(step);
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  if (!running) return;               // nichts zu pausieren
+  paused = !paused;
+  if (!paused) {
+    // Weiter‑Button wurde gedrückt → neue Animationsschleife starten
+    lastTime = null;                  // Zeit neu synchronisieren
+    requestAnimationFrame(step);
+    document.getElementById('pauseBtn').textContent = 'Pause';
+  } else {
+    document.getElementById('pauseBtn').textContent = 'Weiter';
+  }
+});
+
+/* --------------------------------------------------------------
+   Simulations‑Schritt
+   -------------------------------------------------------------- */
+function step(timestamp) {
+  if (!running) return;                // Simulation wurde beendet
+  if (paused) return;                  // Momentan pausiert → nichts tun
+
+  if (!lastTime) lastTime = timestamp;
+  const realDt = (timestamp - lastTime) / 1000;   // reale Sekunden
+  const dt = realDt * timeScale;                  // skaliert
+
+  // Unterteilung in kleine Teil‑Schritte (Vermeidung von Überspringen)
+  const subSteps = Math.ceil(dt / BASE_TIME_STEP);
+  const subDt = dt / subSteps;
+
+  for (let i = 0; i < subSteps; i++) {
+    // ----- Reibung (nur x‑Komponente) -----
+    const aFric = mu * g * PIXEL_PER_METER; // px/s²
+
+    if (vL > 0) vL = Math.max(0, vL - aFric * subDt);
+    else if (vL < 0) vL = Math.min(0, vL + aFric * subDt);
+
+    if (vRcur > 0) vRcur = Math.max(0, vRcur - aFric * subDt);
+    else if (vRcur < 0) vRcur = Math.min(0, vRcur + aFric * subDt);
+
+    // ----- Positionsupdate -----
+    xL += vL * subDt;
+    xR += vRcur * subDt;
+
+    // ----- Kollision mit Wand (linker Würfel) -----
+    if (xL <= WALL_X) {
+      xL = WALL_X;
+      vL = -vL * ELASTIC_COEFF;
+      collisions++;
+      document.getElementById('collisionCount').textContent = `Kollisionen: ${collisions}`;
+    }
+
+    // ----- Kollision Würfel‑zu‑Würfel -----
+    if (xR <= xL + CUBE_SIZE) {
+      xR = xL + CUBE_SIZE;               // Positionskorrektur
+
+      const u1 = vL, u2 = vRcur;
+      const v1 = ((mL - mR) * u1 + 2 * mR * u2) / (mL + mR);
+      const v2 = ((mR - mL) * u2 + 2 * mL * u1) / (mL + mR);
+      vL = v1 * ELASTIC_COEFF;
+      vRcur = v2 * ELASTIC_COEFF;
+
+      collisions++;
+      document.getElementById('collisionCount').textContent = `Kollisionen: ${collisions}`;
+    }
+  }
+
+  // ----- Daten für Diagramme sammeln -----
+  const t = (timestamp - (lastTime - realDt * 1000)) / 1000; // seit Sim‑Start (s)
+  timeData.push(t);
+
+  const vL_m = vL / PIXEL_PER_METER;
+  const vR_m = vRcur / PIXEL_PER_METER;
+  vLData.push(vL_m);
+  vRData.push(vR_m);
+  keLData.push(0.5 * mL * vL_m * vL_m);
+  keRData.push(0.5 * mR * vR_m * vR_m);
+  pLData.push(mL * vL_m);
+  pRData.push(mR * vR_m);
+
+  // Diagramme alle paar Schritte aktualisieren (Performance‑Optimierung)
+  if (timeData.length % 5 === 0) {
+    velChart.update('none');
+    keChart.update('none');
+    momChart.update('none');
+  }
+
+  // ----- Rendern -----
+  drawScene();
+
+  // ----- Stop‑Bedingung (fast still) -----
+  if (Math.abs(vL) < 0.01 && Math.abs(vRcur) < 0.01) {
+    running = false;
+    document.getElementById('pauseBtn').disabled = true;
+    // Letztes Update, damit Endwerte sichtbar sind
+    velChart.update();
+    keChart.update();
+    momChart.update();
+  } else {
+    lastTime = timestamp;
+    requestAnimationFrame(step);
+  }
+}
+
+/* --------------------------------------------------------------
+   Rendering des Simulations‑Canvas
+   -------------------------------------------------------------- */
+function drawScene() {
+  ctx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+
+  // Wand (schwarzer Strich)
+  ctx.fillStyle = '#000';
+  ctx.fillRect(WALL_X, 0, 5, simCanvas.height);
+
+  // Linker Würfel (rot)
+  ctx.fillStyle = '#d33';
+  ctx.fillRect(xL, simCanvas.height / 2 - CUBE_SIZE / 2, CUBE_SIZE, CUBE_SIZE);
+
+  // Rechter Würfel (blau) – fährt nach links
+  ctx.fillStyle = '#33d';
+  ctx.fillRect(xR, simCanvas.height / 2 - CUBE_SIZE / 2, CUBE_SIZE, CUBE_SIZE);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Physik Simulation: Überholvorgang</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; margin: 20px; overflow-x: hidden; }
+        .container { display: grid; grid-template-columns: 380px 1fr; grid-template-rows: auto 400px; gap: 20px; max-width: 1400px; margin: auto; }
+        
+        .controls { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); grid-row: 1 / 2; }
+        .controls h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .control-group { margin-bottom: 20px; }
+        label { display: block; font-size: 0.95em; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .val-badge { background: #3498db; color: white; padding: 2px 8px; border-radius: 4px; float: right; }
+
+        .viewport { grid-column: 2; background: #333; border-radius: 12px; position: relative; height: 300px; overflow: hidden; border: 4px solid #222; }
+        .world { position: absolute; width: 100000px; height: 100%; left: 0; transition: none; }
+        .lane-marker { position: absolute; width: 100%; height: 2px; border-top: 2px dashed rgba(255,255,255,0.5); top: 50%; transform: translateY(-50%); }
+        
+        .ruler { position: absolute; bottom: 0; width: 100%; height: 40px; background: rgba(0,0,0,0.3); display: flex; align-items: flex-start; }
+        .tick { position: absolute; border-left: 2px solid white; height: 10px; color: white; font-size: 10px; padding-left: 3px; }
+
+        .car { position: absolute; width: 60px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 10; }
+        #carA { background: #e74c3c; top: 170px; border: 2px solid #c0392b; }
+        #carB { background: #3498db; top: 60px; border: 2px solid #2980b9; }
+
+        .chart-container { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); grid-column: 1; grid-row: 2; }
+        
+        .results { grid-column: 2; grid-row: 2; background: #2c3e50; color: white; padding: 25px; border-radius: 12px; position: relative; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn { flex: 1; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; min-width: 120px; }
+        .btn-start { background: #27ae60; color: white; }
+        .btn-reset { background: #95a5a6; color: white; }
+        .btn-csv { background: #f39c12; color: white; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        .status-msg { margin-top: 20px; font-style: italic; color: #ecf0f1; }
+
+        .signature {
+            position: fixed;
+            bottom: 10px;
+            right: 15px;
+            font-size: 0.85em;
+            color: #7f8c8d;
+            font-style: italic;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="controls">
+        <h3>Parameter</h3>
+        <div class="control-group">
+            <label>Beschleunigung A ($a_A$): <span class="val-badge" id="valAccelA">2.0</span></label>
+            <input type="range" id="accelA" min="0.1" max="10" step="0.1" value="2.0">
+        </div>
+        <div class="control-group">
+            <label>Start-Geschw. A ($v_A$): <span class="val-badge" id="valSpeedA">10</span></label>
+            <input type="range" id="speedA" min="0" max="50" step="1" value="10">
+        </div>
+        <div class="control-group">
+            <label>Konst. Geschw. B ($v_B$): <span class="val-badge" id="valSpeedB">20</span></label>
+            <input type="range" id="speedB" min="5" max="60" step="1" value="20">
+        </div>
+        <div class="control-group">
+            <label>Start-Abstand ($s_0$): <span class="val-badge" id="valDist">40</span></label>
+            <input type="range" id="dist" min="10" max="200" step="5" value="40">
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-start" onclick="startSimulation()">Start</button>
+            <button class="btn btn-reset" onclick="resetSim()">Reset</button>
+        </div>
+    </div>
+
+    <div class="viewport" id="viewport">
+        <div class="world" id="world">
+            <div class="lane-marker"></div>
+            <div id="ruler" class="ruler"></div>
+            <div id="carB" class="car">B</div>
+            <div id="carA" class="car">A</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="tsChart"></canvas>
+    </div>
+
+    <div class="results">
+        <h3>Live-Daten & Telemetrie</h3>
+        <table style="width: 100%; border-spacing: 0 10px;">
+            <tr><td>Zeit:</td><td style="text-align:right"><b id="resT">0.00</b> s</td></tr>
+            <tr><td>Weg Auto A (s1):</td><td style="text-align:right"><b id="resS1">0.00</b> m</td></tr>
+            <tr><td>Weg Auto B (s2):</td><td style="text-align:right"><b id="resS2">0.00</b> m</td></tr>
+            <tr><td>Differenz:</td><td style="text-align:right"><b id="resDiff">0.00</b> m</td></tr>
+        </table>
+        <div class="btn-group" style="margin-top:15px;">
+            <button class="btn btn-csv" onclick="downloadCSV()">CSV Download</button>
+        </div>
+        <div id="status" class="status-msg">Bereit für Simulation...</div>
+    </div>
+</div>
+
+<div class="signature">by Kristof & Andreas</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let animationId;
+    let startTime;
+    let chart;
+    let intersectionTime = null;
+    let simulationData = []; // Speicher für CSV Export
+    const PPM = 10; 
+
+    const world = document.getElementById('world');
+    const ruler = document.getElementById('ruler');
+
+    function initChart() {
+        const ctx = document.getElementById('tsChart').getContext('2d');
+        if(chart) chart.destroy();
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Auto A (s1)', borderColor: '#e74c3c', data: [], borderWidth: 3, pointRadius: 0, fill: false },
+                    { label: 'Auto B (s2)', borderColor: '#3498db', data: [], borderWidth: 3, pointRadius: 0, fill: false }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { title: { display: true, text: 'Zeit (s)' } },
+                    y: { title: { display: true, text: 'Weg (m)' } }
+                }
+            }
+        });
+    }
+
+    function createRuler() {
+        ruler.innerHTML = '';
+        for (let i = 0; i < 2000; i += 50) {
+            const tick = document.createElement('div');
+            tick.className = 'tick';
+            tick.style.left = (i * PPM) + 'px';
+            tick.innerText = i + 'm';
+            ruler.appendChild(tick);
+        }
+    }
+
+    function setupInputs() {
+        const mappings = {
+            'accelA': 'valAccelA',
+            'speedA': 'valSpeedA',
+            'speedB': 'valSpeedB',
+            'dist': 'valDist'
+        };
+        Object.keys(mappings).forEach(id => {
+            const input = document.getElementById(id);
+            input.oninput = () => {
+                document.getElementById(mappings[id]).innerText = input.value;
+                resetSim(); 
+            };
+        });
+    }
+
+    function resetSim() {
+        cancelAnimationFrame(animationId);
+        intersectionTime = null;
+        simulationData = []; 
+        document.getElementById('status').innerText = "Bereit...";
+        const sB0 = parseFloat(document.getElementById('dist').value);
+        document.getElementById('carA').style.left = "0px";
+        document.getElementById('carB').style.left = (sB0 * PPM) + "px";
+        world.style.left = "50px"; 
+        document.getElementById('resT').innerText = "0.00";
+        document.getElementById('resS1').innerText = "0.00";
+        document.getElementById('resS2').innerText = "0.00";
+        document.getElementById('resDiff').innerText = sB0.toFixed(2);
+        initChart();
+    }
+
+    function startSimulation() {
+        resetSim();
+        const aA = parseFloat(document.getElementById('accelA').value);
+        const vA0 = parseFloat(document.getElementById('speedA').value);
+        const vB = parseFloat(document.getElementById('speedB').value);
+        const sB0 = parseFloat(document.getElementById('dist').value);
+        startTime = performance.now();
+        document.getElementById('status').innerText = "Simulation läuft...";
+
+        function animate(currentTime) {
+            let t = (currentTime - startTime) / 1000;
+            let sA = 0.5 * aA * t * t + vA0 * t;
+            let sB = vB * t + sB0;
+            
+            // Daten für CSV sammeln (alle 0.05s für gute Auflösung)
+            if (Math.round(t * 100) % 5 === 0) {
+                simulationData.push({t: t.toFixed(2), s1: sA.toFixed(2), s2: sB.toFixed(2)});
+            }
+
+            if (intersectionTime === null && sA >= sB) {
+                intersectionTime = t;
+                document.getElementById('status').innerText = "Überholvorgang erfolgt! Stoppe in 5s...";
+            }
+            
+            document.getElementById('carA').style.left = (sA * PPM) + "px";
+            document.getElementById('carB').style.left = (sB * PPM) + "px";
+            let centerPos = ((sA + sB) / 2) * PPM;
+            let viewportWidth = document.getElementById('viewport').offsetWidth;
+            world.style.left = (viewportWidth / 2 - centerPos) + "px";
+            
+            document.getElementById('resT').innerText = t.toFixed(2);
+            document.getElementById('resS1').innerText = sA.toFixed(2);
+            document.getElementById('resS2').innerText = sB.toFixed(2);
+            document.getElementById('resDiff').innerText = Math.abs(sA - sB).toFixed(2);
+
+            if (Math.round(t * 100) % 10 === 0) {
+                chart.data.labels.push(t.toFixed(1));
+                chart.data.datasets[0].data.push(sA);
+                chart.data.datasets[1].data.push(sB);
+                chart.update('none');
+            }
+            
+            if (intersectionTime !== null && (t - intersectionTime) >= 5) {
+                cancelAnimationFrame(animationId);
+                document.getElementById('status').innerText = "Simulation beendet. CSV bereit zum Download.";
+                return;
+            }
+            animationId = requestAnimationFrame(animate);
+        }
+        animationId = requestAnimationFrame(animate);
+    }
+
+    function downloadCSV() {
+        if (simulationData.length === 0) {
+            alert("Bitte starte zuerst die Simulation, um Daten zu sammeln.");
+            return;
+        }
+        let csvContent = "Zeit(s),Strecke_A_s1(m),Strecke_B_s2(m)\n";
+        simulationData.forEach(row => {
+            csvContent += `${row.t},${row.s1},${row.s2}\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", "ueberholvorgang_daten.csv");
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    setupInputs();
+    createRuler();
+    initChart();
+    resetSim();
+</script>
+
+</body>
+</html>

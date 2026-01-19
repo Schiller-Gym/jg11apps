@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fuchs-Hasen-Simulation (optimiert)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8f9fb;
+      --panel: #ffffff;
+      --text: #1b1f27;
+      --muted: #6b7280;
+      --accent: #E53935; /* Füchse (rot) */
+      --gray: #777777;   /* Hasen (grau) */
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans";
+      background: var(--bg); color: var(--text);
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    .layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 16px 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      position: relative;
+    }
+    .header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+    .title { font-weight: 700; }
+    .year-badge {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: #111827; color: #fff;
+      font-weight: 600; font-size: 14px;
+      padding: 6px 10px; border-radius: 8px;
+      letter-spacing: 0.3px;
+    }
+    .controls {
+      display: grid; grid-template-columns: 1fr 1fr 1.1fr auto auto auto;
+      gap: 10px; align-items: end; margin: 12px 0 8px;
+    }
+    label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+    input[type="number"] {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; background: #fff; color: var(--text);
+    }
+    .btn {
+      padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+      font-weight: 600; font-size: 14px; cursor: pointer; background: #fff;
+    }
+    .btn.primary { background: #111827; color: #fff; border-color: #111827; }
+    .btn.warn    { background: #fff1f1; color: #8b0000; border-color: #f7d4d4; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .legend { display: flex; gap: 16px; align-items: center; margin: 6px 0 12px; color: var(--muted); font-size: 13px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot.fox { background: var(--accent); }
+    .dot.rabbit { background: var(--gray); }
+    .stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 12px; color: var(--muted); font-size: 14px; }
+    .stat-item { background: #f3f4f6; padding: 8px 10px; border-radius: 8px; }
+    .panel-note { color: var(--muted); font-size: 12px; }
+    canvas { width: 100%; height: 400px; }
+
+    .viz-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .viz-title { font-weight: 700; }
+    .viz-note { color: var(--muted); font-size: 12px; }
+    #forestCanvas { width: 100%; height: 400px; border-radius: 8px; border: 1px solid var(--border); }
+
+    /* Erweiterte Parameter */
+    .advanced {
+      margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;
+    }
+    @media (max-width: 980px) {
+      .advanced { grid-template-columns: 1fr 1fr; }
+    }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff;
+    }
+
+    /* Statusbereich */
+    #statusChart { width: 100%; height: 240px; }
+    #statusJson {
+      max-height: 180px; overflow: auto; background: #f9fafb; padding: 8px;
+      border-radius: 8px; border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="layout">
+      <!-- Linke Karte: Steuerung + Diagramm -->
+      <div class="card" id="leftCard">
+        <div class="header">
+          <div class="title">Fuchs-Hasen-Simulation (Prädator–Beute, optimiert)</div>
+        </div>
+        <div id="yearBadge" class="year-badge">Jahr: 0</div>
+
+        <div class="controls">
+          <div>
+            <label for="initRabbits">Anfangswerte Hasen</label>
+            <input id="initRabbits" type="number" min="0" step="1" value="50" />
+          </div>
+          <div>
+            <label for="initFoxes">Anfangswerte Füchse</label>
+            <input id="initFoxes" type="number" min="0" step="1" value="10" />
+          </div>
+
+          <div>
+            <label for="secPerYearInput">Sekunden pro Jahr</label>
+            <!-- keine Eingrenzung mehr; beliebige Dezimalzahl -->
+            <input id="secPerYearInput" type="number" step="0.01" value="5.0" />
+          </div>
+
+          <button id="startBtn" class="btn primary">Start</button>
+          <button id="pauseBtn" class="btn warn" disabled>Pausieren</button>
+          <button id="resetBtn" class="btn" disabled>Zurücksetzen</button>
+        </div>
+
+        <div class="advanced">
+          <div>
+            <label for="alphaInput">alpha (Hasen-Wachstum)</label>
+            <input id="alphaInput" type="number" min="0.05" max="3" step="0.05" value="1.0" />
+          </div>
+          <div>
+            <label for="KInput">K (Tragfähigkeit)</label>
+            <input id="KInput" type="number" min="50" max="5000" step="50" value="500" />
+          </div>
+          <div>
+            <label for="betaInput">beta (Prädation)</label>
+            <input id="betaInput" type="number" min="0.001" max="0.1" step="0.001" value="0.015" />
+          </div>
+          <div>
+            <label for="gammaInput">gamma (Fuchs-Sterberate)</label>
+            <input id="gammaInput" type="number" min="0.05" max="2" step="0.05" value="0.5" />
+          </div>
+          <div>
+            <label for="deltaInput">delta (Fuchs-Nachwuchs/Beute)</label>
+            <input id="deltaInput" type="number" min="0.001" max="0.1" step="0.001" value="0.012" />
+          </div>
+          <label class="toggle">
+            <input id="moveWhilePaused" type="checkbox" checked />
+            Sprites bewegen im Pause-Modus
+          </label>
+        </div>
+
+        <div class="legend">
+          <span><span class="dot rabbit"></span>Hasen (grau)</span>
+          <span><span class="dot fox"></span>Füchse (rot)</span>
+        </div>
+
+        <div class="stats">
+          <div class="stat-item">Hasen: <strong id="rabbitCount">50</strong></div>
+          <div class="stat-item">Füchse: <strong id="foxCount">10</strong></div>
+          <div class="stat-item">Zeitschritt: <strong id="statSec">1 Jahr pro 5.00 s</strong></div>
+          <div class="stat-item">Gleichgewicht R*: <strong id="eqR">–</strong></div>
+          <div class="stat-item">Gleichgewicht F*: <strong id="eqF">–</strong></div>
+        </div>
+
+        <canvas id="popChart"></canvas>
+
+        <p class="panel-note">
+          Modell: Lotka–Volterra mit logistischer Hasen-Dynamik (Tragfähigkeit K).
+          Integration: RK4 mit 100 Schritten/Jahr. Rechts: grüne Fläche mit Schattierung; Tiere mit einfachem Jagd-/Fluchtverhalten.
+        </p>
+      </div>
+
+      <!-- Rechte Karte: Visualisierung + Status -->
+      <div class="card">
+        <div class="viz-header">
+          <div class="viz-title">Visuelle Darstellung (grüner Hintergrund)</div>
+          <div class="viz-note">Hasen grau • Füchse rot</div>
+        </div>
+        <canvas id="forestCanvas"></canvas>
+
+        <div class="viz-header" style="margin-top: 12px;">
+          <div class="viz-title">Status quo (Daten & Export)</div>
+          <div class="viz-note">Aktualisiert sich sofort bei Regler-Änderungen</div>
+        </div>
+        <canvas id="statusChart"></canvas>
+        <div class="stats" style="margin-top: 8px;">
+          <button id="downloadJsonBtn" class="btn">Download JSON</button>
+          <button id="downloadCsvBtn" class="btn">Download CSV</button>
+        </div>
+        <pre id="statusJson" class="panel-note"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Modellparameter ---
+    const params = {
+      alpha: 1.0,   // Hasen-Wachstum/Jahr
+      K: 500,       // Tragfähigkeit
+      beta: 0.015,  // Prädation
+      gamma: 0.5,   // Fuchs-Sterberate/Jahr
+      delta: 0.012  // Fuchs-Nachwuchs pro Beute-Kontakt
+    };
+
+    // Numerik
+    const INTEGRATION_STEPS_PER_YEAR = 100;
+    const dt = 1 / INTEGRATION_STEPS_PER_YEAR;
+
+    // Zustände
+    let R = 50; // Hasen
+    let F = 10; // Füchse
+    let year = 0;
+
+    // Zeitsteuerung
+    let secPerYear = 5.0; // Sekunden pro Jahr (keine Eingrenzung)
+    let timerId = null;
+    let running = false;
+
+    // UI
+    const yearBadge = document.getElementById('yearBadge');
+    const rabbitCountEl = document.getElementById('rabbitCount');
+    const foxCountEl = document.getElementById('foxCount');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const initRabbitsInput = document.getElementById('initRabbits');
+    const initFoxesInput = document.getElementById('initFoxes');
+    const secInput = document.getElementById('secPerYearInput');
+    const statSec = document.getElementById('statSec');
+    const alphaInput = document.getElementById('alphaInput');
+    const KInput = document.getElementById('KInput');
+    const betaInput = document.getElementById('betaInput');
+    const gammaInput = document.getElementById('gammaInput');
+    const deltaInput = document.getElementById('deltaInput');
+    const eqREl = document.getElementById('eqR');
+    const eqFEl = document.getElementById('eqF');
+    const moveWhilePausedInput = document.getElementById('moveWhilePaused');
+
+    // Chart (Populationen)
+    const chartCtx = document.getElementById('popChart');
+    const chart = new Chart(chartCtx, {
+      type: 'line',
+      data: {
+        datasets: [
+          {
+            label: 'Hasen',
+            data: [{ x: 0, y: R }],
+            borderColor: '#777777',
+            backgroundColor: 'rgba(120,120,120,0.12)',
+            tension: 0.2, pointRadius: 0, borderWidth: 2
+          },
+          {
+            label: 'Füchse',
+            data: [{ x: 0, y: F }],
+            borderColor: '#E53935',
+            backgroundColor: 'rgba(229,57,53,0.12)',
+            tension: 0.2, pointRadius: 0, borderWidth: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: { duration: 250 },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { title: (items) => `Jahr: ${items[0].parsed.x}` } }
+        },
+        scales: {
+          x: { type: 'linear', title: { display: true, text: 'Jahre' }, min: 0 },
+          y: { beginAtZero: true, title: { display: true, text: 'Anzahl Tiere' } }
+        }
+      }
+    });
+    const MAX_POINTS = 1000;
+
+    function updateEquilibria() {
+      // R* = gamma/delta ; F* = alpha*(1 - R*/K)/beta (nur wenn R* < K)
+      const Rstar = params.gamma / params.delta;
+      if (Number.isFinite(Rstar) && Rstar > 0 && Rstar < params.K) {
+        const Fstar = (params.alpha * (1 - Rstar / params.K)) / params.beta;
+        eqREl.textContent = Rstar.toFixed(1);
+        eqFEl.textContent = Fstar.toFixed(1);
+      } else {
+        eqREl.textContent = '–';
+        eqFEl.textContent = '–';
+      }
+    }
+
+    function updateDisplays() {
+      yearBadge.textContent = `Jahr: ${year}`;
+      rabbitCountEl.textContent = Math.round(R);
+      foxCountEl.textContent = Math.round(F);
+      statSec.textContent = `1 Jahr pro ${Number(secPerYear).toFixed(2)} s`;
+      updateEquilibria();
+    }
+
+    function addDataPoint() {
+      chart.data.datasets[0].data.push({ x: year, y: R });
+      chart.data.datasets[1].data.push({ x: year, y: F });
+      if (chart.data.datasets[0].data.length > MAX_POINTS) {
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[1].data.shift();
+        chart.options.scales.x.min = chart.data.datasets[0].data[0].x;
+      }
+      chart.update();
+    }
+
+    // --- RK4-Integration ---
+    function dR_fun(Rv, Fv) { return params.alpha * Rv * (1 - Rv / params.K) - params.beta * Rv * Fv; }
+    function dF_fun(Rv, Fv) { return params.delta * Rv * Fv - params.gamma * Fv; }
+
+    function integrateOneYear() {
+      for (let i = 0; i < INTEGRATION_STEPS_PER_YEAR; i++) {
+        const k1R = dR_fun(R, F);
+        const k1F = dF_fun(R, F);
+
+        const k2R = dR_fun(R + 0.5 * dt * k1R, F + 0.5 * dt * k1F);
+        const k2F = dF_fun(R + 0.5 * dt * k1R, F + 0.5 * dt * k1F);
+
+        const k3R = dR_fun(R + 0.5 * dt * k2R, F + 0.5 * dt * k2F);
+        const k3F = dF_fun(R + 0.5 * dt * k2R, F + 0.5 * dt * k2F);
+
+        const k4R = dR_fun(R + dt * k3R, F + dt * k3F);
+        const k4F = dF_fun(R + dt * k3R, F + dt * k3F);
+
+        R += (dt / 6) * (k1R + 2 * k2R + 2 * k3R + k4R);
+        F += (dt / 6) * (k1F + 2 * k2F + 2 * k3F + k4F);
+
+        if (!Number.isFinite(R) || R < 0) R = 0;
+        if (!Number.isFinite(F) || F < 0) F = 0;
+      }
+    }
+
+    function tickYear() {
+      integrateOneYear();
+      year += 1;
+      updateDisplays();
+      addDataPoint();
+      updateVisibleAnimals();
+      refreshStatusViews(); // Status sofort aktualisieren
+      if (R === 0 && F === 0) stopSimulation();
+    }
+
+    function startInterval() {
+      clearInterval(timerId);
+      // Vorsicht: sehr kleine oder 0 Sek. pro Jahr => hohe CPU-Last
+      const intervalMs = Math.max(0, secPerYear * 1000);
+      timerId = setInterval(tickYear, intervalMs);
+    }
+
+    function startSimulation() {
+      if (running) return;
+
+      if (year === 0 && chart.data.datasets[0].data.length === 1) {
+        R = Math.max(0, Number(initRabbitsInput.value || 0));
+        F = Math.max(0, Number(initFoxesInput.value || 0));
+        chart.data.datasets[0].data[0] = { x: 0, y: R };
+        chart.data.datasets[1].data[0] = { x: 0, y: F };
+        chart.update();
+        updateDisplays();
+        reseedAnimals();
+        refreshStatusViews();
+      }
+
+      running = true;
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      resetBtn.disabled = true;
+      pauseBtn.textContent = 'Pausieren';
+
+      startInterval();
+    }
+
+    function stopSimulation() {
+      if (!running) return;
+      running = false;
+      clearInterval(timerId);
+      timerId = null;
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      resetBtn.disabled = false;
+      pauseBtn.textContent = 'Pausieren';
+    }
+
+    function togglePause() {
+      if (!startBtn.disabled) return; // noch nicht gestartet
+      if (running) {
+        running = false;
+        clearInterval(timerId);
+        timerId = null;
+        pauseBtn.textContent = 'Fortsetzen';
+        resetBtn.disabled = false;
+      } else {
+        running = true;
+        pauseBtn.textContent = 'Pausieren';
+        resetBtn.disabled = true;
+        startInterval();
+      }
+    }
+
+    function resetSimulation() {
+      clearInterval(timerId);
+      timerId = null;
+      running = false;
+
+      year = 0;
+      R = Math.max(0, Number(initRabbitsInput.value || 0));
+      F = Math.max(0, Number(initFoxesInput.value || 0));
+
+      chart.data.datasets[0].data = [{ x: 0, y: R }];
+      chart.data.datasets[1].data = [{ x: 0, y: F }];
+      chart.options.scales.x.min = 0;
+      chart.update();
+
+      updateDisplays();
+
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      resetBtn.disabled = true;
+      pauseBtn.textContent = 'Pausieren';
+
+      reseedAnimals();
+      refreshStatusViews();
+    }
+
+    // Events
+    startBtn.addEventListener('click', startSimulation);
+    pauseBtn.addEventListener('click', togglePause);
+    resetBtn.addEventListener('click', resetSimulation);
+
+    initRabbitsInput.addEventListener('change', () => {
+      const v = Math.max(0, Number(initRabbitsInput.value || 0));
+      initRabbitsInput.value = Math.round(v);
+      if (!running && year === 0) {
+        R = Math.round(v);
+        chart.data.datasets[0].data[0] = { x: 0, y: R };
+        chart.update();
+        updateDisplays();
+        reseedAnimals();
+        refreshStatusViews();
+      }
+    });
+    initFoxesInput.addEventListener('change', () => {
+      const v = Math.max(0, Number(initFoxesInput.value || 0));
+      initFoxesInput.value = Math.round(v);
+      if (!running && year === 0) {
+        F = Math.round(v);
+        chart.data.datasets[1].data[0] = { x: 0, y: F };
+        chart.update();
+        updateDisplays();
+        reseedAnimals();
+        refreshStatusViews();
+      }
+    });
+
+    // Zeit-Eingabe: keine Eingrenzung, beliebige Dezimalzahl
+    function parseSecValue(val) {
+      const s = String(val).replace(',', '.'); // Komma erlauben
+      const num = parseFloat(s);
+      return isNaN(num) ? null : num;
+    }
+    function applySecInput() {
+      const v = parseSecValue(secInput.value);
+      if (v === null) { secInput.value = Number(secPerYear).toFixed(2); return; }
+      secPerYear = v;
+      secInput.value = Number.isFinite(secPerYear) ? String(secPerYear) : '0';
+      updateDisplays();
+      refreshStatusViews();
+      if (running) startInterval();
+    }
+    secInput.addEventListener('change', applySecInput);
+    secInput.addEventListener('input', applySecInput);
+
+    // Parameter-Events
+    function clampNum(input, min, max, step) {
+      let v = Number(String(input.value).replace(',', '.'));
+      if (!Number.isFinite(v)) v = min;
+      v = Math.min(max, Math.max(min, v));
+      v = Math.round(v / step) * step;
+      input.value = v.toFixed(step < 1 ? String(step).split('.')[1].length : 0);
+      return v;
+    }
+    function applyParams() {
+      params.alpha = clampNum(alphaInput, 0.05, 3, 0.05);
+      params.K     = clampNum(KInput,     50, 5000, 50);
+      params.beta  = clampNum(betaInput,  0.001, 0.1, 0.001);
+      params.gamma = clampNum(gammaInput, 0.05, 2, 0.05);
+      params.delta = clampNum(deltaInput, 0.001, 0.1, 0.001);
+      updateEquilibria();
+      refreshStatusViews();
+    }
+    [alphaInput, KInput, betaInput, gammaInput, deltaInput].forEach(inp => {
+      inp.addEventListener('change', applyParams);
+      inp.addEventListener('input', applyParams);
+    });
+
+    // --- Visualisierung: grüner Hintergrund (gecacht) + Tiere ---
+    const forestCanvas = document.getElementById('forestCanvas');
+    const fctx = forestCanvas.getContext('2d');
+    let dpr = window.devicePixelRatio || 1;
+
+    // Hintergrund-Puffer
+    let bgBufferCanvas = null;
+    let bgBufferCtx = null;
+
+    function buildBackgroundBuffer() {
+      const w = forestCanvas.clientWidth;
+      const h = forestCanvas.clientHeight;
+
+      // Buffer in Device-Pixeln
+      bgBufferCanvas = document.createElement('canvas');
+      bgBufferCanvas.width = Math.floor(w * dpr);
+      bgBufferCanvas.height = Math.floor(h * dpr);
+      bgBufferCtx = bgBufferCanvas.getContext('2d');
+
+      // im Buffer in CSS-Pixeln zeichnen
+      bgBufferCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Grund-Gradient
+      const grad = bgBufferCtx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#73c66b');
+      grad.addColorStop(1, '#56b45e');
+      bgBufferCtx.fillStyle = grad;
+      bgBufferCtx.fillRect(0, 0, w, h);
+
+      // Vignette
+      const vignette = bgBufferCtx.createRadialGradient(w/2, h*0.8, Math.min(w,h)*0.2, w/2, h*0.8, Math.max(w,h));
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.10)');
+      bgBufferCtx.fillStyle = vignette;
+      bgBufferCtx.fillRect(0, 0, w, h);
+
+      // Subtile Blockstruktur
+      const tile = 14;
+      for (let y = 0; y < h; y += tile) {
+        for (let x = 0; x < w; x += tile) {
+          const r = hash2(x / tile, y / tile);
+          const alpha = 0.06 * (r - 0.5);
+          bgBufferCtx.fillStyle = alpha > 0 ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${-alpha})`;
+          bgBufferCtx.fillRect(x, y, tile, tile);
+        }
+      }
+    }
+
+    function drawGreenBackground() {
+      const w = forestCanvas.clientWidth;
+      const h = forestCanvas.clientHeight;
+      if (!bgBufferCanvas) buildBackgroundBuffer();
+      fctx.drawImage(bgBufferCanvas, 0, 0, w, h);
+    }
+
+    // deterministische "Zufalls"-Funktion pro Kachel
+    function hash2(i, j) {
+      const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
+      return s - Math.floor(s); // [0,1)
+    }
+
+    function resizeForestCanvas() {
+      // DPR neu lesen (z. B. bei Zoom)
+      dpr = Math.max(1, window.devicePixelRatio || 1);
+      const rect = forestCanvas.getBoundingClientRect();
+      const cssW = Math.floor(rect.width);
+      const cssH = Math.floor(rect.height);
+      forestCanvas.width = cssW * dpr;
+      forestCanvas.height = cssH * dpr;
+      fctx.setTransform(dpr, 0, 0, dpr, 0, 0); // zeichnen in CSS-Pixeln
+      buildBackgroundBuffer();
+      reseedAnimals(); // bei Größe ändern: neu platzieren
+    }
+    window.addEventListener('resize', resizeForestCanvas);
+
+    // Ebenen
+    function layerYs() {
+      const h = forestCanvas.clientHeight;
+      const top = Math.floor(h * 0.20);
+      const bottom = Math.floor(h * 0.85);
+      const layers = Math.max(5, Math.floor(h / 70)); // etwa alle 70px eine Ebene
+      const ys = [];
+      if (layers <= 1) return [bottom];
+      const step = (bottom - top) / (layers - 1);
+      for (let i = 0; i < layers; i++) ys.push(Math.round(top + i * step));
+      return ys;
+    }
+
+    // Tiere
+    const animals = []; // {type, x, y, vx, vy, size, speed, layerIdx, moveDirection}
+    const MAX_RABBIT_SPRITES = 60;
+    const MAX_FOX_SPRITES = 30;
+
+    function desiredSpriteCounts() {
+      const desiredRabbits = Math.min(MAX_RABBIT_SPRITES, Math.round(R / 8));
+      const desiredFoxes   = Math.min(MAX_FOX_SPRITES, Math.round(F / 2));
+      return { desiredRabbits, desiredFoxes };
+    }
+
+    function reseedAnimals() {
+      const { desiredRabbits, desiredFoxes } = desiredSpriteCounts();
+      animals.length = 0;
+      spawnAnimals('rabbit', desiredRabbits);
+      spawnAnimals('fox', desiredFoxes);
+    }
+
+    function updateVisibleAnimals() {
+      const { desiredRabbits, desiredFoxes } = desiredSpriteCounts();
+      const currentR = animals.filter(a => a.type === 'rabbit').length;
+      const currentF = animals.filter(a => a.type === 'fox').length;
+
+      if (desiredRabbits > currentR) spawnAnimals('rabbit', desiredRabbits - currentR);
+      else if (desiredRabbits < currentR) removeAnimals('rabbit', currentR - desiredRabbits);
+
+      if (desiredFoxes > currentF) spawnAnimals('fox', desiredFoxes - currentF);
+      else if (desiredFoxes < currentF) removeAnimals('fox', currentF - desiredFoxes);
+    }
+
+    function spawnAnimals(type, count) {
+      const w = forestCanvas.clientWidth;
+      const ys = layerYs();
+      for (let i = 0; i < count; i++) {
+        const size = type === 'rabbit' ? 14 + Math.random() * 4 : 16 + Math.random() * 4;
+        const x = 10 + Math.random() * (w - 20);
+        const layerIdx = Math.floor(Math.random() * ys.length);
+        const baseY = ys[layerIdx];
+        const y = baseY - size * 0.6 + Math.random() * 6; // auf der Ebene, mit kleinem Jitter
+        const vx = (Math.random() - 0.5) * (type === 'rabbit' ? 0.8 : 1.1);
+        const vy = 0;
+        const speed = type === 'rabbit' ? 1.1 : 1.0;
+        const moveDirection = Math.random() * Math.PI * 2; // zufällige Richtung
+        animals.push({ type, x, y, vx, vy, size, speed, layerIdx, moveDirection });
+      }
+    }
+
+    function removeAnimals(type, count) {
+      for (let i = animals.length - 1; i >= 0 && count > 0; i--) {
+        if (animals[i].type === type) { animals.splice(i, 1); count--; }
+      }
+    }
+
+    // Zeichnen der Sprites
+    function drawRabbit(ctx, x, y, s) {
+      ctx.fillStyle = '#777';
+      ctx.fillRect(x, y, s, s * 0.6);
+      ctx.fillRect(x + s * 0.6, y - s * 0.25, s * 0.5, s * 0.45); // Kopf
+      ctx.fillRect(x + s * 0.85, y - s * 0.55, s * 0.12, s * 0.32); // Ohr 1
+      ctx.fillRect(x + s * 0.7,  y - s * 0.55, s * 0.12, s * 0.32); // Ohr 2
+      ctx.fillStyle = '#999';
+      ctx.fillRect(x - s * 0.15, y + s * 0.2, s * 0.2, s * 0.2); // Schwanz
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x + s * 0.2, y + s * 0.1, 2, 2);
+    }
+
+    function drawFox(ctx, x, y, s) {
+      ctx.fillStyle = '#E53935';
+      ctx.fillRect(x, y, s * 1.1, s * 0.6);
+      ctx.fillRect(x + s * 0.8, y - s * 0.15, s * 0.5, s * 0.45); // Kopf
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x + s * 1.2, y + s * 0.05, s * 0.25, s * 0.2); // Schnauze
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - s * 0.28, y + s * 0.25, s * 0.33, s * 0.2); // Schwanzspitze
+      ctx.fillStyle = '#E53935';
+      ctx.fillRect(x - s * 0.12, y + s * 0.25, s * 0.18, s * 0.2);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x + s * 0.2, y + s * 0.15, 2, 2);
+    }
+
+    // Jagd-/Flucht-Helfer
+    function lerpAngle(a, b, t) {
+      let d = b - a;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      return a + d * t;
+    }
+    function nearestOfType(x, y, type) {
+      let best = null, bestD2 = Infinity;
+      for (const a of animals) {
+        if (a.type !== type) continue;
+        const dx = a.x - x, dy = a.y - y, d2 = dx*dx + dy*dy;
+        if (d2 < bestD2) { bestD2 = d2; best = a; }
+      }
+      return { target: best, dist2: bestD2 };
+    }
+
+    // Animation
+    let lastT = performance.now();
+    function animate(t) {
+      let dtMs = t - lastT;
+      lastT = t;
+      // gegen große Sprünge (Tabwechsel) abfedern
+      dtMs = Math.min(dtMs, 80);
+
+      drawGreenBackground();
+
+      const h = forestCanvas.clientHeight;
+      const w = forestCanvas.clientWidth;
+      const ys = layerYs();
+
+      const allowMove = running || moveWhilePausedInput.checked;
+
+      // Optional: Sortierung für Tiefenwirkung
+      // animals.sort((a, b) => (a.layerIdx - b.layerIdx) || (a.y - b.y));
+
+      for (const a of animals) {
+        const s = a.size;
+        const baseY = ys[a.layerIdx % ys.length] || Math.floor(h * 0.82);
+
+        if (allowMove) {
+          // leichtes Rauschen
+          a.moveDirection += (Math.random() - 0.5) * 0.06;
+
+          if (a.type === 'fox') {
+            const { target, dist2 } = nearestOfType(a.x, a.y, 'rabbit');
+            if (target && dist2 < 180 * 180) {
+              const aim = Math.atan2(target.y - a.y, target.x - a.x);
+              a.moveDirection = lerpAngle(a.moveDirection, aim, 0.10);
+              a.speed = 1.2;
+            } else {
+              a.speed = 1.0;
+            }
+          } else if (a.type === 'rabbit') {
+            const { target, dist2 } = nearestOfType(a.x, a.y, 'fox');
+            if (target && dist2 < 160 * 160) {
+              const flee = Math.atan2(a.y - target.y, a.x - target.x);
+              a.moveDirection = lerpAngle(a.moveDirection, flee, 0.14);
+              a.speed = 1.25;
+            } else {
+              a.speed = 1.1;
+            }
+          }
+
+          a.vx = Math.cos(a.moveDirection) * 0.5;
+          a.vy = Math.sin(a.moveDirection) * 0.5;
+
+          // Position aktualisieren
+          const step = dtMs / 16; // normiert auf ~60 FPS
+          a.x += a.vx * a.speed * step;
+          a.y += a.vy * a.speed * step;
+
+          // Kollision mit der Ebene
+          if (a.y >= baseY - s * 0.6) {
+            a.y = baseY - s * 0.6;
+            a.vy = -a.vy * 0.15; // sanfter Bounce
+          }
+
+          // Wände
+          const margin = 10;
+          if (a.x < margin) { a.x = margin; a.moveDirection = Math.PI - a.moveDirection; }
+          if (a.x > w - margin - s) { a.x = w - margin - s; a.moveDirection = Math.PI - a.moveDirection; }
+          if (a.y < 20) { a.y = 20; a.vy = 0; }
+        }
+
+        // Zeichnen
+        if (a.type === 'rabbit') drawRabbit(fctx, a.x, a.y, s);
+        else drawFox(fctx, a.x, a.y, s);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // --- Status-Daten, Chart (ohne Koordinatensystem) und Export ---
+    function buildStatusData() {
+      const Rstar = params.gamma / params.delta;
+      const Fstar = (Number.isFinite(Rstar) && Rstar > 0 && Rstar < params.K)
+        ? (params.alpha * (1 - Rstar / params.K)) / params.beta
+        : null;
+
+      return {
+        zeit: { jahr: year, sekundenProJahr: secPerYear },
+        population: { hasen: Math.round(R), fuechse: Math.round(F) },
+        parameter: {
+          alpha: params.alpha,
+          beta: params.beta,
+          gamma: params.gamma,
+          delta: params.delta,
+          K: params.K
+        },
+        gleichgewicht: {
+          Rstar: Number.isFinite(Rstar) ? Rstar : null,
+          Fstar: Number.isFinite(Fstar) ? Fstar : null
+        }
+      };
+    }
+
+    // Plugin für Werte direkt an den Balken
+    const valueLabelPlugin = {
+      id: 'valueLabelPlugin',
+      afterDatasetsDraw(chart, args, pluginOptions) {
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+
+        const fmt = (label, val) => {
+          if (!Number.isFinite(val)) return '';
+          if (['Hasen (R)', 'Füchse (F)', 'R*', 'F*', 'K'].includes(label)) {
+            return `${Math.round(val)} Tiere`;
+          }
+          if (label === 'alpha' || label === 'gamma') return `${val.toFixed(2)} 1/Jahr`;
+          if (label === 'beta' || label === 'delta') return val.toFixed(3);
+          return String(val);
+        };
+
+        const labels = chart.data.labels;
+
+        chart.data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+
+          meta.data.forEach((elem, i) => {
+            const val = ds.data[i];
+            if (!Number.isFinite(val)) return;
+            const { x, y } = elem.getProps(['x', 'y'], true);
+            const text = fmt(labels[i], val);
+            const ty = Math.min(y - 10, chartArea.bottom - 8);
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(text, x, ty);
+
+            ctx.fillStyle = '#1b1f27';
+            ctx.fillText(text, x, ty);
+          });
+        });
+
+        ctx.restore();
+      }
+    };
+
+    const statusCtx = document.getElementById('statusChart');
+    const statusChart = new Chart(statusCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Hasen (R)', 'Füchse (F)', 'R*', 'F*', 'alpha', 'beta', 'gamma', 'delta', 'K'],
+        datasets: [
+          {
+            label: 'Population & Gleichgewicht',
+            backgroundColor: 'rgba(120,120,120,0.25)',
+            borderColor: '#777',
+            borderWidth: 1,
+            data: Array(9).fill(NaN),
+            yAxisID: 'yPop'
+          },
+          {
+            label: 'Parameter',
+            backgroundColor: 'rgba(229,57,53,0.25)',
+            borderColor: '#E53935',
+            borderWidth: 1,
+            data: Array(9).fill(NaN),
+            yAxisID: 'yParam'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: { duration: 200 },
+        plugins: {
+          legend: { display: true },
+          tooltip: { callbacks: { title: (items) => items[0].label } }
+        },
+        // Kein Koordinatensystem sichtbar
+        scales: {
+          x: { display: false, grid: { display: false }, border: { display: false } },
+          yPop: { type: 'linear', display: false, grid: { display: false }, border: { display: false }, beginAtZero: true },
+          yParam: { type: 'logarithmic', display: false, grid: { display: false }, border: { display: false }, min: 0.0005 }
+        },
+        layout: { padding: { top: 8, right: 8, bottom: 4, left: 8 } }
+      },
+      plugins: [valueLabelPlugin]
+    });
+
+    const statusJsonEl = document.getElementById('statusJson');
+
+    function updateStatusChart() {
+      const s = buildStatusData();
+      const popDataset = statusChart.data.datasets[0];
+      const parDataset = statusChart.data.datasets[1];
+
+      popDataset.data = [
+        s.population.hasen,
+        s.population.fuechse,
+        s.gleichgewicht.Rstar ?? NaN,
+        s.gleichgewicht.Fstar ?? NaN,
+        NaN, NaN, NaN, NaN, NaN
+      ];
+
+      parDataset.data = [
+        NaN, NaN, NaN, NaN,
+        s.parameter.alpha,
+        s.parameter.beta,
+        s.parameter.gamma,
+        s.parameter.delta,
+        s.parameter.K
+      ];
+
+      statusChart.update();
+    }
+
+    function updateStatusJson() {
+      const s = buildStatusData();
+      statusJsonEl.textContent = JSON.stringify(s, null, 2);
+    }
+
+    function refreshStatusViews() {
+      updateStatusChart();
+      updateStatusJson();
+    }
+
+    // Export
+    const downloadJsonBtn = document.getElementById('downloadJsonBtn');
+    const downloadCsvBtn  = document.getElementById('downloadCsvBtn');
+
+    function exportStatusJSON() {
+      const s = buildStatusData();
+      const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `statusquo_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportStatusCSV() {
+      const s = buildStatusData();
+      const rows = [
+        ['zeit.jahr', 'zeit.sekundenProJahr', 'population.hasen', 'population.fuechse', 'parameter.alpha', 'parameter.beta', 'parameter.gamma', 'parameter.delta', 'parameter.K', 'gleichgewicht.Rstar', 'gleichgewicht.Fstar'],
+        [
+          s.zeit.jahr,
+          s.zeit.sekundenProJahr,
+          s.population.hasen,
+          s.population.fuechse,
+          s.parameter.alpha,
+          s.parameter.beta,
+          s.parameter.gamma,
+          s.parameter.delta,
+          s.parameter.K,
+          s.gleichgewicht.Rstar ?? '',
+          s.gleichgewicht.Fstar ?? ''
+        ]
+      ];
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `statusquo_${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    downloadJsonBtn.addEventListener('click', exportStatusJSON);
+    downloadCsvBtn.addEventListener('click', exportStatusCSV);
+
+    // Initial
+    resizeForestCanvas();
+    updateDisplays();
+    reseedAnimals();
+    refreshStatusViews();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>

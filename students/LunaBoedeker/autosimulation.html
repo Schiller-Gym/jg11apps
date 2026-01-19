@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Simulation mit T-S-Diagramm</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            text-align: center;
+        }
+
+        #road {
+            position: relative;
+            width: 80%;
+            height: 200px;
+            background-color: #666;
+            margin: 20px auto;
+            overflow: hidden;
+            border: 2px solid #000;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .car {
+            position: absolute;
+            width: 50px;
+            height: 30px;
+            transition: left 0.1s linear, bottom 0.1s linear;
+        }
+
+        #blueCar {
+            background-color: blue;
+            bottom: 20px; /* Untere Spur */
+        }
+
+        #redCar {
+            background-color: red;
+            left: calc(33.33% - 25px); /* Startposition des roten Autos, ein Drittel vom linken Bildrand */
+            bottom: 20px; /* Untere Spur */
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        .slider {
+            width: 300px;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-top: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .chart-container {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px auto;
+            width: 80%;
+        }
+
+        canvas {
+            border: 1px solid #000;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Auto-Simulation mit T-S-Diagramm</h1>
+    <div id="road">
+        <div id="blueCar" class="car"></div>
+        <div id="redCar" class="car"></div>
+    </div>
+
+    <div class="controls">
+        <label for="blueSpeed">Blaue Auto Geschwindigkeit: </label>
+        <input type="number" id="blueSpeed" class="slider" min="0" max="1" step="0.01" value="0.6">
+        <span id="blueSpeedValue">0.6</span>
+
+        <br><br>
+
+        <label for="redSpeed">Rote Auto Geschwindigkeit: </label>
+        <input type="number" id="redSpeed" class="slider" min="0" max="1" step="0.01" value="0.2">
+        <span id="redSpeedValue">0.2</span>
+
+        <br><br>
+
+        <button id="resetButton">Zurücksetzen</button>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="blueChart" width="400" height="300"></canvas>
+        <canvas id="redChart" width="400" height="300"></canvas>
+    </div>
+
+    <script>
+        const blueCar = document.getElementById('blueCar');
+        const redCar = document.getElementById('redCar');
+        const blueSpeedInput = document.getElementById('blueSpeed');
+        const redSpeedInput = document.getElementById('redSpeed');
+        const blueSpeedValue = document.getElementById('blueSpeedValue');
+        const redSpeedValue = document.getElementById('redSpeedValue');
+        const resetButton = document.getElementById('resetButton');
+        const blueChart = document.getElementById('blueChart');
+        const redChart = document.getElementById('redChart');
+        const blueCtx = blueChart.getContext('2d');
+        const redCtx = redChart.getContext('2d');
+
+        let bluePosition = 0;
+        let redPosition = window.innerWidth * (1 / 3) - 25; // Startposition des roten Autos
+        let blueSpeed = parseFloat(blueSpeedInput.value);
+        let redSpeed = parseFloat(redSpeedInput.value);
+        let animationFrame;
+        let blueCarInUpperLane = false; // Flag für die Spur des blauen Autos
+        let time = 0; // Zeit in Sekunden
+        const timeInterval = 0.1; // Zeitintervall für die Simulation
+        const bluePositions = []; // Array für die Positionen des blauen Autos
+        const redPositions = []; // Array für die Positionen des roten Autos
+
+        function updatePositions() {
+            // Berechne neue Positionen
+            bluePosition += blueSpeed * 2; // Langsame Geschwindigkeit
+            redPosition += redSpeed * 2; // Langsame Geschwindigkeit
+
+            // Stoppe die Autos am Ende der Straße
+            if (bluePosition >= window.innerWidth - 50) {
+                bluePosition = window.innerWidth - 50; // Stoppen am Ende
+            }
+
+            if (redPosition >= window.innerWidth - 50) {
+                redPosition = window.innerWidth - 50; // Stoppen am Ende
+            }
+
+            // Überprüfe die Positionen der Autos
+            if (Math.abs(bluePosition - redPosition) < 100) { // Früher Spurwechsel
+                if (!blueCarInUpperLane) {
+                    blueCarInUpperLane = true;
+                    blueCar.style.bottom = '60px'; // Spur wechseln
+                }
+            } else {
+                // Wenn das blaue Auto mehr als eine Autolänge voraus ist, wechsle zurück
+                if (blueCarInUpperLane && bluePosition > redPosition + 100) { // Spätere Rückkehr
+                    blueCarInUpperLane = false;
+                    blueCar.style.bottom = '20px'; // Zurück auf die ursprüngliche Spur
+                }
+            }
+
+            // Setze die Positionen der Autos
+            blueCar.style.left = bluePosition + 'px';
+            redCar.style.left = redPosition + 'px';
+
+            // Speichere die Positionen für das Diagramm
+            bluePositions.push({ time: time, position: bluePosition });
+            redPositions.push({ time: time, position: redPosition });
+
+            // Animation fortsetzen, solange die Autos nicht am Ende sind
+            if (bluePosition < window.innerWidth - 50 || redPosition < window.innerWidth - 50) {
+                time += timeInterval; // Zeit erhöhen
+                animationFrame = requestAnimationFrame(updatePositions);
+            } else {
+                drawCharts(); // Diagramm zeichnen, wenn die Simulation endet
+            }
+        }
+
+        function drawCharts() {
+            // Zeichne T-S-Diagramm für das blaue Auto
+            blueCtx.clearRect(0, 0, blueChart.width, blueChart.height); // Canvas leeren
+            blueCtx.beginPath();
+            blueCtx.moveTo(0, blueChart.height - bluePositions[0].position / 2); // Startpunkt für das blaue Auto
+
+            bluePositions.forEach(data => {
+                const x = data.time * 100; // X-Koordinate basierend auf der Zeit
+                const y = blueChart.height - data.position / 2; // Y-Koordinate basierend auf der Position
+                blueCtx.lineTo(x, y);
+            });
+            blueCtx.strokeStyle = 'blue';
+            blueCtx.stroke();
+            blueCtx.closePath();
+
+            // Zeichne T-S-Diagramm für das rote Auto
+            redCtx.clearRect(0, 0, redChart.width, redChart.height); // Canvas leeren
+            redCtx.beginPath();
+            redCtx.moveTo(0, redChart.height - redPositions[0].position / 2); // Startpunkt für das rote Auto
+
+            redPositions.forEach(data => {
+                const x = data.time * 100; // X-Koordinate basierend auf der Zeit
+                const y = redChart.height - data.position / 2; // Y-Koordinate basierend auf der Position
+                redCtx.lineTo(x, y);
+            });
+            redCtx.strokeStyle = 'red';
+            redCtx.stroke();
+            redCtx.closePath();
+
+            // Achsenbeschriftung
+            drawAxes(blueCtx, 'Blaues Auto (Position)');
+            drawAxes(redCtx, 'Rotes Auto (Position)');
+        }
+
+        function drawAxes(ctx, title) {
+            ctx.fillStyle = 'black';
+            ctx.font = '14px Arial';
+            ctx.fillText(title, 10, 20); // Titel der Achse
+            ctx.fillText('Zeit (s)', ctx.canvas.width - 80, ctx.canvas.height - 10); // X-Achse
+            ctx.fillText('Position (px)', 10, 20); // Y-Achse
+        }
+
+        function resetSimulation() {
+            bluePosition = 0;
+            redPosition = window.innerWidth * (1 / 3) - 25; // Zurücksetzen der Startposition des roten Autos
+            blueSpeed = parseFloat(blueSpeedInput.value);
+            redSpeed = parseFloat(redSpeedInput.value);
+            blueCar.style.left = bluePosition + 'px';
+            redCar.style.left = redPosition + 'px';
+            blueCar.style.bottom = '20px'; // Zurück auf die ursprüngliche Spur
+            blueCarInUpperLane = false; // Spur zurücksetzen
+            cancelAnimationFrame(animationFrame);
+            time = 0; // Zeit zurücksetzen
+            bluePositions.length = 0; // Positionen zurücksetzen
+            redPositions.length = 0; // Positionen zurücksetzen
+            blueCtx.clearRect(0, 0, blueChart.width, blueChart.height); // Canvas leeren
+            redCtx.clearRect(0, 0, redChart.width, redChart.height); // Canvas leeren
+            updatePositions();
+        }
+
+        blueSpeedInput.addEventListener('input', () => {
+            blueSpeed = parseFloat(blueSpeedInput.value);
+            blueSpeedValue.textContent = blueSpeed;
+        });
+
+        redSpeedInput.addEventListener('input', () => {
+            redSpeed = parseFloat(redSpeedInput.value);
+            redSpeedValue.textContent = redSpeed;
+        });
+
+        resetButton.addEventListener('click', resetSimulation);
+
+        updatePositions();
+    </script>
+
+</body>
+</html>

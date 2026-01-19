@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Überholvorgang – Zwei Autos (eigene Spuren)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .controls label {
+            display: inline-block;
+            width: 240px;
+        }
+
+        .controls input {
+            width: 90px;
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 6px 14px;
+        }
+
+        /* Straße */
+        #road {
+            position: relative;
+            width: 900px;
+            height: 200px;
+            background: #555;
+            margin-top: 25px;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .lane-divider {
+            position: absolute;
+            top: 85px;
+            width: 100%;
+            border-top: 3px dashed white;
+        }
+
+        /* Autos */
+        .car {
+            position: absolute;
+            width: 100px;
+            height: 50px;
+            transition: left 0.03s linear;
+        }
+
+        #car1 {
+            top: 30px;  /* Obere Spur für Auto 1 */
+            left: 0px;
+            background-color: blue; /* Standardfarbe für Auto 1 */
+        }
+
+        #car2 {
+            top: 120px; /* Untere Spur für Auto 2 */
+            left: 0px;
+            background-color: red; /* Standardfarbe für Auto 2 */
+        }
+
+        canvas {
+            max-width: 900px;
+            margin-top: 30px;
+        }
+
+    </style>
+</head>
+
+<body>
+
+<h2>Überholvorgang: Koenigsegg vs. Bugatti (Eigene Spuren)</h2>
+
+<div class="controls">
+    <label>Geschwindigkeit Auto 1 (m/s):</label>
+    <input id="v1" type="number" value="25"><br>
+
+    <label>Geschwindigkeit Auto 2 (m/s):</label>
+    <input id="v2" type="number" value="35"><br>
+
+    <label>Anfangsabstand Δs (m):</label>
+    <input id="dist" type="number" value="120"><br>
+
+    <label>Simulationszeit (s):</label>
+    <input id="tmax" type="number" value="15"><br>
+
+    <label>Zeitschritt Δt (s):</label>
+    <input id="dt" type="number" value="0.05"><br><br>
+
+    <!-- Datei-Upload für Auto 1 und Auto 2 -->
+    <label>Bild für Auto 1 (Koenigsegg):</label>
+    <input type="file" id="file1" accept="image/*" onchange="loadImage(event, 'car1')"><br>
+
+    <label>Bild für Auto 2 (Bugatti):</label>
+    <input type="file" id="file2" accept="image/*" onchange="loadImage(event, 'car2')"><br><br>
+
+    <button onclick="startSimulation()">Start</button>
+    <button onclick="exportCSV()">CSV exportieren</button>
+</div>
+
+<!-- Straße -->
+<div id="road">
+    <div class="lane-divider"></div>
+
+    <!-- Billo-Autos (Standard Rechtecke) -->
+    <div id="car1" class="car"></div>
+    <div id="car2" class="car"></div>
+</div>
+
+<!-- Diagramm -->
+<canvas id="chart"></canvas>
+
+<script>
+let chart;
+let csvData = [];
+let interval;
+
+function loadImage(event, carId) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function() {
+        const img = new Image();
+        img.onload = function() {
+            document.getElementById(carId).style.backgroundImage = `url(${reader.result})`;
+            document.getElementById(carId).style.backgroundSize = "cover"; // Bild anpassen
+            document.getElementById(carId).style.backgroundColor = "transparent"; // Farbe entfernen
+        };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function startSimulation() {
+    clearInterval(interval);
+    csvData = [];
+
+    const v1 = parseFloat(v1Input.value);
+    const v2 = parseFloat(v2Input.value);
+    const dist = parseFloat(distInput.value);
+    const tmax = parseFloat(tmaxInput.value);
+    const dt = parseFloat(dtInput.value);
+
+    const roadWidth = 900;
+    const scale = roadWidth / (Math.max(v1, v2) * tmax + dist);
+
+    let t = 0;
+
+    const tArr = [], s1Arr = [], s2Arr = [];
+
+    interval = setInterval(() => {
+        if (t > tmax) {
+            clearInterval(interval);
+            drawChart(tArr, s1Arr, s2Arr);
+            return;
+        }
+
+        const s1 = dist + v1 * t;
+        const s2 = v2 * t;
+
+        car1.style.left = (s1 * scale) + "px";
+        car2.style.left = (s2 * scale) + "px";
+
+        tArr.push(t.toFixed(2));
+        s1Arr.push(s1);
+        s2Arr.push(s2);
+
+        csvData.push({
+            t: t.toFixed(2),
+            s1, s2
+        });
+
+        t += dt;
+    }, 30);
+}
+
+function drawChart(t, s1, s2) {
+    if (chart) chart.destroy();
+
+    chart = new Chart(chartCanvas, {
+        type: "line",
+        data: {
+            labels: t,
+            datasets: [
+                { label: "Auto 1", data: s1, borderColor: "blue" },
+                { label: "Auto 2", data: s2, borderColor: "red" }
+            ]
+        },
+        options: {
+            scales: {
+                x: { title: { display: true, text: "Zeit t [s]" } },
+                y: { title: { display: true, text: "Weg s [m]" } }
+            }
+        }
+    });
+}
+
+function exportCSV() {
+    let csv = "t;s1;s2\n";
+    csvData.forEach(r => {
+        csv += `${r.t};${r.s1.toFixed(2)};${r.s2.toFixed(2)}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ueberholvorgang.csv";
+    a.click();
+}
+
+/* DOM */
+const v1Input = document.getElementById("v1");
+const v2Input = document.getElementById("v2");
+const distInput = document.getElementById("dist");
+const tmaxInput = document.getElementById("tmax");
+const dtInput = document.getElementById("dt");
+const car1 = document.getElementById("car1");
+const car2 = document.getElementById("car2");
+const chartCanvas = document.getElementById("chart");
+
+</script>
+
+</body>
+</html>

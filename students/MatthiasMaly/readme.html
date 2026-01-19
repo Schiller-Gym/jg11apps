@@ -1,0 +1,102 @@
+# Zweiautos — Vogelperspektive mit t–s Diagramm und CSV-Export
+
+Kurz: Eine kleine, clientseitige HTML/JS-Simulation von zwei Fahrzeugen (konstante Geschwindigkeit) mit:
+- Vogelperspektive (Top-Down) Darstellung,
+- Live t–s (Zeit–Strecke) Diagramm,
+- Live-Sampling mit konfigurierbarer Abtastrate,
+- CSV-Export des Formats `t|s1|s2`.
+
+## Demo / Vorschau
+Öffne die Datei `index.html` (oder die bereitgestellte HTML-Datei) in einem modernen Browser (Chrome, Edge, Firefox, Safari). Besser ist es, die Datei über einen lokalen Webserver zu öffnen (siehe unten), damit der CSV-Download zuverlässig funktioniert.
+
+## Voraussetzungen
+- Moderner Webbrowser mit Canvas-Unterstützung.
+- Keine Server-Komponente erforderlich (reines Frontend).
+- Optional: Node / Python für lokalen Webserver.
+
+## Lokaler Start (empfohlen)
+Im Ordner mit der HTML-Datei kannst du z.B. einen einfachen Server starten:
+
+- Mit Python 3:
+  - python3 -m http.server 8000
+  - Dann im Browser: http://localhost:8000/<deine-datei>.html
+
+- Mit npm (falls `serve` installiert):
+  - npx serve .
+  - Öffne die angezeigte URL.
+
+Alternativ per Doppelklick die HTML-Datei öffnen — CSV-Download funktioniert in den meisten Browsern auch so, kann aber bei restriktiven Einstellungen eingeschränkt sein.
+
+## Bedienung / UI-Elemente
+In der linken Steuerungsleiste findest du folgende Parameter:
+- Geschwindigkeit Auto 1 (v1, m/s) — Schieberegler + Zahlenfeld
+- Geschwindigkeit Auto 2 (v2, m/s)
+- Anfangsposition s1 (m)
+- Anfangsposition s2 (m)
+- Abtastrate (sampleHz, Hz) — wie oft pro Sekunde ein Messwert gespeichert wird
+- Skalierung (px pro Meter) — visuelle Skalierung in der Top-Down-Ansicht
+
+Buttons:
+- Start — startet die Simulation (Zeit und Positionen laufen weiter)
+- Pause �� stoppt das Fortschreiten von Zeit und Positionen (Samples können weiterhin gespeichert werden, da t dann konstant ist)
+- Reset — setzt Zeit auf 0, Positionen zurück auf die Eingabewerte und leert die Samples
+- Export CSV (t|s1|s2) — lädt eine CSV-Datei mit allen gesammelten Samples herunter
+- Daten löschen — leert die gespeicherten Samples (ohne Zeit zurückzusetzen)
+
+Hinweis zur Legende:
+- Rot (Auto 1), Cyan (Auto 2). Vogelperspektive: Straße horizontal, zwei Fahrspuren.
+
+## CSV-Export
+- Format: Pipe-separiert: `t|s1|s2`
+- Spaltenbeschreibung:
+  - t — Zeit in Sekunden (Fließkomma)
+  - s1 — Position Auto 1 in Metern
+  - s2 — Position Auto 2 in Metern
+- Beispielkopf:
+  ```
+  t|s1|s2
+  0.0000|20.000000|10.000000
+  0.1000|20.150000|10.100000
+  ...
+  ```
+- Dateiname: `ts_data_YYYY-MM-DD_hh-mm-ss.csv`
+
+## Implementationshinweise
+- Alle Berechnungen laufen clientseitig in JavaScript.
+- Zustand wird in einem `state`-Objekt gehalten:
+  - `t`, `running`, `v1`, `v2`, `s1`, `s2`, `pxPerM`, `sampleHz`, `samples[]`.
+- Sampling: ein Akkumulator sammelt dt und bei Erreichen von `1/sampleHz` wird ein Sample `{t,s1,s2}` gespeichert.
+- Zeichnung:
+  - `topCanvas`: Top-Down Darstellung mit Road, Ticks, Fahrzeugen.
+  - `plotCanvas`: t–s Diagramm (automatisch skaliert, Grid und Achsen).
+  - Gerätedpi wird mittels `devicePixelRatio` berücksichtigt für scharfe Zeichnung auf HiDPI-Displays.
+- Performance: Standardmäßig unbegrenzte Samples; es gibt einen vorsorglichen Schutz (alte Samples werden entfernt, wenn > 20000).
+
+## Anpassungen / Erweiterungen
+- Standardwerte ändern: Passe die `value`-Attribute der Input-Elemente (`v1`, `v2`, `s1`, `s2`, `sampleHz`, `scale`) in der HTML-Datei an.
+- Maximalwerte: `input`-Attribute (`min`, `max`, `step`) anpassen, um andere Bereiche zu erlauben.
+- Fahrzeuge / Optik: Farben, Größen (`carW`, `carH`) und Road-Styling im JS/CSS ändern.
+- Persistenz: Speichere `state.samples` im localStorage oder lade/vetrage CSV-Dateien zurück.
+- Kollisionserkennung oder variable Beschleunigung: ersetze die konstanten Geschwindigkeiten durch Beschleunigungsmodelle.
+
+## Fehlerbehebung
+- Canvas erscheint unscharf? Stelle sicher, dass `devicePixelRatio` berücksichtigt wird oder ändere CSS/Canvas-Attribute.
+- CSV-Download funktioniert nicht beim direkten Öffnen? Starte einen lokalen Server (s. Abschnitt Lokaler Start).
+- Sehr große Sample-Arrays können den Speicher belasten; reduziere `sampleHz` oder limitiere die maximale Anzahl an Samples.
+
+## Sicherheit & Verantwortung
+- Diese Simulation ist rein visuell/numerisch und nicht für sicherheitskritische Simulationen gedacht.
+- Nutze sensible Daten nicht unverschlüsselt im Code.
+
+## Lizenz & Mitwirken
+- Standardmäßig: Füge eine Lizenz hinzu (z. B. MIT) wenn du das Projekt freigeben willst.
+- Beiträge: Fork -> Branch -> Pull Request. Beschreibe Feature/Fehler in der PR.
+
+---
+
+Wenn du möchtest, kann ich:
+- die HTML-Datei für ein GitHub Pages-Deploy vorbereiten,
+- automatische Speicherung/Geladen-Funktion (localStorage / JSON) ergänzen,
+- oder die CSV-Importfunktion hinzufügen, damit man Daten wieder einladen und weiter plotten kann.
+
+Sag mir, welche Erweiterung du zuerst möchtest.

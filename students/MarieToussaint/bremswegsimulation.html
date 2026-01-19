@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Bremsweg-Simulation</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; background: #f7f9fc; color: #111; }
+    .controls { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .control { background:#fff; padding:10px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+    label { display:block; font-size:13px; margin-bottom:6px; color:#333; }
+    input[type="range"] { width:260px; }
+    #canvasWrap { background:linear-gradient(#dfe7f5,#f8fbff); border-radius:10px; padding:12px; box-shadow:0 2px 6px rgba(0,0,0,0.06); }
+    canvas { background: linear-gradient(#e9eef8,#ffffff); border-radius:8px; display:block; margin:0 auto; }
+    .stats { margin-top:10px; display:flex; gap:12px; flex-wrap:wrap; }
+    .stat { background:#fff; padding:8px 12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+    button { padding:8px 12px; border-radius:8px; border:0; cursor:pointer; background:#0366d6; color:#fff; }
+    button.secondary { background:#6c757d; }
+    .small { font-size:13px; color:#444; }
+    .inline { display:inline-flex; gap:8px; align-items:center; }
+    footer { margin-top:14px; font-size:12px; color:#666; }
+  </style>
+</head>
+<body>
+  <h2>Bremsweg-Simulation (Eis / Asphalt)</h2>
+
+  <div class="controls">
+    <div class="control">
+      <label for="speedRange">Geschwindigkeit v (km/h)</label>
+      <input id="speedRange" type="range" min="10" max="200" value="80" step="1" />
+      <div class="small">Aktuell: <span id="speedValue">80</span> km/h</div>
+    </div>
+
+    <div class="control">
+      <label for="massInput">Masse m (kg)</label>
+      <input id="massInput" type="number" min="400" max="5000" value="1500" step="50" />
+    </div>
+
+    <div class="control">
+      <label for="surfaceSelect">Straßenbedingung</label>
+      <select id="surfaceSelect">
+        <option value="asphalt">Asphalt (μ=0.80)</option>
+        <option value="ice">Eis (μ=0.10)</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label for="reactionInput">Reaktionszeit (s)</label>
+      <input id="reactionInput" type="number" min="0.2" max="3" step="0.1" value="1.0" />
+    </div>
+
+    <div class="control inline">
+      <button id="startBtn">Start</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+    </div>
+
+    <div class="control inline">
+      <button id="exportBtn">CSV exportieren</button>
+    </div>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="track" width="1000" height="160"></canvas>
+    <div class="stats" id="statsRow">
+      <div class="stat"><strong>Bremsweg gesamt:</strong> <span id="totalDistance">—</span> m</div>
+      <div class="stat"><strong>Reaktionsweg:</strong> <span id="reactionDistance">—</span> m</div>
+      <div class="stat"><strong>Bremsverzögerung:</strong> <span id="deceleration">—</span> m/s²</div>
+      <div class="stat"><strong>Zeit bis Stillstand:</strong> <span id="timeToStop">—</span> s</div>
+    </div>
+  </div>
+
+  <footer>Speichern: CSV enthält Spalten v_kmh, masse_kg, t_s, geschwindigkeit_m_s, position_m, reibung_mu</footer>
+
+<script>
+/* Simulation-Variablen und Funktionen */
+const g = 9.81;
+const canvas = document.getElementById('track');
+const ctx = canvas.getContext('2d');
+
+const speedRange = document.getElementById('speedRange');
+const speedValue = document.getElementById('speedValue');
+const massInput = document.getElementById('massInput');
+const surfaceSelect = document.getElementById('surfaceSelect');
+const reactionInput = document.getElementById('reactionInput');
+
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+const totalDistanceEl = document.getElementById('totalDistance');
+const reactionDistanceEl = document.getElementById('reactionDistance');
+const decelerationEl = document.getElementById('deceleration');
+const timeToStopEl = document.getElementById('timeToStop');
+
+speedValue.textContent = speedRange.value;
+speedRange.addEventListener('input', ()=> speedValue.textContent = speedRange.value);
+
+let animationId = null;
+let simData = []; // für CSV
+
+// Pfützen: werden neu generiert, wenn Oberfläche "ice" gewählt ist
+let puddles = []; // array of {xM, radiusM}
+function generatePuddles(totalMeters) {
+  puddles = [];
+  // create between 3 and 8 puddles, sizes relative to track length
+  const count = Math.min(10, Math.max(3, Math.floor(totalMeters / 8)));
+  for (let i=0;i<count;i++) {
+    const xM = 2 + Math.random() * Math.max(1, totalMeters - 4); // avoid edges
+    const rM = 0.4 + Math.random() * 1.2; // radius in meters (small puddles)
+    puddles.push({ xM, rM });
+  }
+}
+
+function getMu(surface) {
+  if (surface === 'asphalt') return 0.80;
+  if (surface === 'ice') return 0.10;
+  return 0.6;
+}
+
+function computeBraking(v_kmh, mass, mu, reactionTime) {
+  // convert
+  const v = v_kmh / 3.6; // m/s
+  const a = mu * g; // m/s^2 (Betrag der Verzögerung)
+  const t_brake = v / a; // Sek. bis Stillstand nach Betätigung
+  const s_reaction = v * reactionTime;
+  const s_brake = (v * v) / (2 * a);
+  const s_total = s_reaction + s_brake;
+  const t_total = reactionTime + t_brake;
+  return { v, a, t_brake, s_reaction, s_brake, s_total, t_total };
+}
+
+function drawPuddlesOnRoad(puddles, pad, usableW, pxPerM, roadY, roadH) {
+  // icy puddles: bluish, slightly transparent with highlight
+  for (const p of puddles) {
+    const cx = pad + 20 + p.xM * pxPerM;
+    const cy = roadY + roadH/2 + 6; // slightly below center of road
+    const r = Math.max(3, p.rM * pxPerM);
+    // base ellipse
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(180,220,255,0.45)';
+    ctx.ellipse(cx, cy, r * 1.4, r, 0, 0, Math.PI*2);
+    ctx.fill();
+    // inner glossy highlight
+    const grad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.6, r*0.1, cx, cy, r*1.2);
+    grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(0.6, 'rgba(200,240,255,0.45)');
+    grad.addColorStop(1, 'rgba(180,220,255,0.15)');
+    ctx.beginPath();
+    ctx.fillStyle = grad;
+    ctx.ellipse(cx - r*0.2, cy - r*0.35, r*0.9, r*0.6, -0.2, 0, Math.PI*2);
+    ctx.fill();
+    // subtle edge
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(120,160,200,0.25)';
+    ctx.lineWidth = 1;
+    ctx.ellipse(cx, cy, r * 1.4, r, 0, 0, Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function drawTrack(totalMeters, carPosM) {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // Draw road
+  const pad = 40;
+  const roadY = 80;
+  const roadH = 50;
+  ctx.fillStyle = '#2b2b2b';
+  ctx.fillRect(pad, roadY, canvas.width - 2*pad, roadH);
+  // lane markings
+  ctx.strokeStyle = '#ffd';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([20,16]);
+  ctx.beginPath();
+  ctx.moveTo(pad+10, roadY + roadH/2);
+  ctx.lineTo(canvas.width-pad-10, roadY + roadH/2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // meter scale: compute pixels per meter
+  const usableW = canvas.width - 2*pad - 40;
+  const pxPerM = usableW / Math.max(1, totalMeters); // if totalMeters small => zoom out
+
+  // draw puddles if ice selected
+  if (surfaceSelect.value === 'ice') {
+    drawPuddlesOnRoad(puddles, pad, usableW, pxPerM, roadY, roadH);
+  }
+
+  // draw ticks every adaptively-chosen step
+  const tickStep = Math.max(1, Math.ceil(totalMeters/20));
+  ctx.fillStyle = '#333';
+  ctx.font = '11px Arial';
+  for (let m=0; m<=Math.ceil(totalMeters); m+=tickStep) {
+    const x = pad + 20 + m * pxPerM;
+    ctx.beginPath();
+    ctx.moveTo(x, roadY + roadH + 2);
+    ctx.lineTo(x, roadY + roadH + 12);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillText(m + ' m', x-10, roadY + roadH + 28);
+  }
+
+  // Draw car as rectangle
+  const carX = pad + 20 + carPosM * pxPerM;
+  const carY = roadY + roadH/2 - 12;
+  const carW = 36;
+  const carH = 24;
+  ctx.fillStyle = '#d62828';
+  ctx.fillRect(carX, carY, carW, carH);
+  // windows / details
+  ctx.fillStyle = '#222';
+  ctx.fillRect(carX+6, carY+4, 8,6);
+  ctx.fillRect(carX+22, carY+4, 8,6);
+
+  // Draw two tires at the lower left and lower right corners of the car
+  const tireRadius = 6; // px
+  // positions: slightly inset from car corners and positioned under the car
+  const leftTireCenterX = carX + 6; // inset from left edge
+  const rightTireCenterX = carX + carW - 6; // inset from right edge
+  const tireCenterY = carY + carH + tireRadius - 2; // slightly overlapping under the car
+
+  // tire shadow / rim
+  function drawTire(cx, cy, r) {
+    // outer tire
+    ctx.beginPath();
+    ctx.fillStyle = '#111'; // tire color
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // rim
+    ctx.beginPath();
+    ctx.fillStyle = '#666';
+    ctx.arc(cx, cy, Math.max(2, Math.floor(r*0.45)), 0, Math.PI * 2);
+    ctx.fill();
+    // small spokes (simple)
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 1;
+    for (let i=0;i<4;i++) {
+      const ang = (i / 4) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(ang) * (r*0.6), cy + Math.sin(ang) * (r*0.6));
+      ctx.stroke();
+    }
+  }
+
+  drawTire(leftTireCenterX, tireCenterY, tireRadius);
+  drawTire(rightTireCenterX, tireCenterY, tireRadius);
+}
+
+function simulateAndAnimate() {
+  cancelAnimationFrame(animationId);
+  simData = [];
+  const v_kmh = parseFloat(speedRange.value);
+  const mass = parseFloat(massInput.value);
+  const mu = getMu(surfaceSelect.value);
+  const reactionTime = parseFloat(reactionInput.value);
+
+  const res = computeBraking(v_kmh, mass, mu, reactionTime);
+  const totalMeters = Math.max(5, Math.ceil(res.s_total * 1.1)); // small margin for display
+
+  // generate puddles if ice
+  if (surfaceSelect.value === 'ice') {
+    generatePuddles(totalMeters);
+  } else {
+    puddles = [];
+  }
+
+  // Prepare time stepping
+  const dt = 0.02;
+  let t = 0;
+  let x = 0;
+  let v = res.v;
+  // start simulation from t=0 to t_total
+  const records = [];
+  const t_end = res.t_total;
+  while (t <= t_end + 1e-9) {
+    // decide if braking applied
+    if (t < reactionTime) {
+      // no braking
+      x += v * dt;
+      // speed unchanged
+    } else {
+      // braking
+      const decel = res.a;
+      v = Math.max(0, v - decel * dt);
+      x += v * dt;
+    }
+    records.push({ t: parseFloat(t.toFixed(4)), v: parseFloat(v.toFixed(6)), x: parseFloat(x.toFixed(6)), mu });
+    t += dt;
+  }
+
+  // Save for CSV: convert v to m/s already, but CSV requires also v_kmh column per spec
+  simData = records.map(r => ({ v_kmh, masse_kg: mass, t_s: r.t, geschwindigkeit_m_s: r.v, position_m: r.x, reibung_mu: r.mu }));
+
+  // Update stats
+  totalDistanceEl.textContent = res.s_total.toFixed(2);
+  reactionDistanceEl.textContent = res.s_reaction.toFixed(2);
+  decelerationEl.textContent = res.a.toFixed(2);
+  timeToStopEl.textContent = res.t_total.toFixed(2);
+
+  // Animation loop: advance through records
+  let idx = 0;
+  function frame() {
+    const rec = records[Math.min(idx, records.length-1)];
+    drawTrack(totalMeters, rec.x);
+    idx++;
+    if (idx < records.length) {
+      animationId = requestAnimationFrame(frame);
+    } else {
+      // final draw ensure at rest
+      drawTrack(totalMeters, records[records.length-1].x);
+    }
+  }
+  frame();
+}
+
+startBtn.addEventListener('click', simulateAndAnimate);
+resetBtn.addEventListener('click', ()=> {
+  cancelAnimationFrame(animationId);
+  simData = [];
+  totalDistanceEl.textContent = '—';
+  reactionDistanceEl.textContent = '—';
+  decelerationEl.textContent = '—';
+  timeToStopEl.textContent = '—';
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // draw empty road baseline
+  drawTrack(50, 0);
+});
+
+exportBtn.addEventListener('click', ()=> {
+  if (!simData || simData.length === 0) {
+    alert('Bitte zuerst Simulation starten, dann CSV exportieren.');
+    return;
+  }
+  // Build CSV: header then lines
+  const header = ['v_kmh','masse_kg','t_s','geschwindigkeit_m_s','position_m','reibung_mu'];
+  const lines = [header.join(',')];
+  for (const r of simData) {
+    lines.push([r.v_kmh, r.masse_kg, r.t_s, r.geschwindigkeit_m_s, r.position_m, r.reibung_mu].join(','));
+  }
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bremsweg_simulation.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// initial drawing
+drawTrack(50,0);
+
+</script>
+</body>
+</html>
