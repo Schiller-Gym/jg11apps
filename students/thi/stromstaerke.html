@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulation Stromstärke</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .card {
+      width: min(900px, 100%);
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.4rem;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: #cbd5e1;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .controls label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #38bdf8;
+    }
+
+    .readout {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 0.95rem;
+    }
+
+    .chip {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 999px;
+      padding: 6px 10px;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+      background: radial-gradient(circle at top, #1f2937, #020617 70%);
+      border: 1px solid #334155;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Stromstärke-Simulation im Kabel</h1>
+    <p>Die Elektronen bewegen sich durch das Kabel. Höhere Stromstärke (I) bedeutet: mehr Elektronen pro Sekunde.</p>
+
+    <div class="controls">
+      <label for="currentRange">
+        <span>Stromstärke I</span>
+        <strong id="currentValue">3.0 A</strong>
+      </label>
+      <input id="currentRange" type="range" min="0" max="10" step="0.1" value="3">
+    </div>
+
+    <div class="readout">
+      <div class="chip">Elektronengeschwindigkeit: <strong id="speedValue">70</strong> px/s</div>
+      <div class="chip">Elektronen im Kabel: <strong id="countValue">0</strong></div>
+    </div>
+
+    <canvas id="simCanvas" width="860" height="260" aria-label="Kabel mit fließenden Elektronen"></canvas>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const currentRange = document.getElementById('currentRange');
+    const currentValue = document.getElementById('currentValue');
+    const speedValue = document.getElementById('speedValue');
+    const countValue = document.getElementById('countValue');
+
+    const electrons = [];
+    let spawnBuffer = 0;
+    let lastTime = performance.now();
+
+    function settingsFromCurrent(current) {
+      const minSpeed = 20;
+      const maxSpeed = 190;
+      const speed = minSpeed + (maxSpeed - minSpeed) * (current / 10);
+      const spawnRate = 5 + current * 10;
+      return { speed, spawnRate };
+    }
+
+    function spawnElectron() {
+      const yCenter = canvas.height / 2;
+      const spread = 52;
+      electrons.push({
+        x: canvas.width + 8,
+        y: yCenter + (Math.random() * 2 - 1) * spread,
+        r: 3 + Math.random() * 2
+      });
+    }
+
+    function drawCable() {
+      const cableY = canvas.height / 2 - 60;
+      const cableH = 120;
+      ctx.fillStyle = '#374151';
+      ctx.fillRect(30, cableY, canvas.width - 60, cableH);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(30, cableY, canvas.width - 60, cableH);
+      ctx.fillStyle = '#9ca3af';
+      ctx.fillRect(30, canvas.height / 2 - 8, canvas.width - 60, 16);
+    }
+
+    function drawElectrons() {
+      for (const e of electrons) {
+        const glow = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r * 4);
+        glow.addColorStop(0, 'rgba(56, 189, 248, 0.95)');
+        glow.addColorStop(1, 'rgba(56, 189, 248, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r * 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#7dd3fc';
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function animate(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      const current = Number(currentRange.value);
+      const { speed, spawnRate } = settingsFromCurrent(current);
+
+      spawnBuffer += spawnRate * dt;
+      while (spawnBuffer >= 1) {
+        spawnElectron();
+        spawnBuffer -= 1;
+      }
+
+      for (let i = electrons.length - 1; i >= 0; i--) {
+        electrons[i].x -= speed * dt;
+        if (electrons[i].x < 20) electrons.splice(i, 1);
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawCable();
+      drawElectrons();
+
+      currentValue.textContent = current.toFixed(1) + ' A';
+      speedValue.textContent = Math.round(speed);
+      countValue.textContent = String(electrons.length);
+
+      requestAnimationFrame(animate);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
