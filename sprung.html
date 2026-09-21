@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sprung eines Balls</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+            background: #eaf3f8;
+            color: #19313d;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+
+        main {
+            width: min(680px, 100%);
+            padding: 24px;
+            background: #ffffff;
+            border: 1px solid #c9dce5;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(25, 49, 61, 0.12);
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: clamp(1.5rem, 4vw, 2rem);
+        }
+
+        p {
+            margin: 0 0 16px;
+            color: #52707d;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #dff2fa;
+            border: 2px solid #78a9ba;
+            border-radius: 8px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px 14px;
+            border: 0;
+            border-radius: 6px;
+            background: #20758b;
+            color: white;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #185d70;
+        }
+
+        button:focus-visible {
+            outline: 3px solid #f2bd52;
+            outline-offset: 2px;
+        }
+
+        #status {
+            margin: 14px 0 0;
+            min-height: 1.4em;
+            font-size: 0.95rem;
+            color: #52707d;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Der springende Ball</h1>
+        <p>Bei jedem Aufprall verliert der Ball etwas Energie. Dadurch werden die Sprünge immer kleiner.</p>
+        <canvas id="simulation" width="640" height="380" aria-label="Animation eines springenden Balls"></canvas>
+        <div class="controls">
+            <button id="start" type="button">Start</button>
+            <button id="reset" type="button">Zurücksetzen</button>
+        </div>
+        <p id="status" aria-live="polite">Bereit zum Starten</p>
+    </main>
+
+    <script>
+        const canvas = document.getElementById('simulation');
+        const context = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        const startButton = document.getElementById('start');
+        const resetButton = document.getElementById('reset');
+
+        const ground = canvas.height - 34;
+        const gravity = 900;
+        const bounceFactor = 0.72;
+        const ball = {
+            x: canvas.width / 2,
+            y: 70,
+            radius: 22,
+            velocity: 0
+        };
+
+        let animationId = null;
+        let lastTime = 0;
+        let bounceCount = 0;
+
+        function draw() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            context.fillStyle = '#b8d9df';
+            context.fillRect(0, ground, canvas.width, canvas.height - ground);
+            context.fillStyle = '#527f89';
+            context.fillRect(0, ground, canvas.width, 5);
+
+            context.beginPath();
+            context.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            context.fillStyle = '#ef765b';
+            context.fill();
+            context.strokeStyle = '#ad4537';
+            context.lineWidth = 3;
+            context.stroke();
+        }
+
+        function update(time) {
+            if (!lastTime) {
+                lastTime = time;
+            }
+
+            const deltaTime = Math.min((time - lastTime) / 1000, 0.04);
+            lastTime = time;
+            ball.velocity += gravity * deltaTime;
+            ball.y += ball.velocity * deltaTime;
+
+            if (ball.y + ball.radius >= ground) {
+                ball.y = ground - ball.radius;
+                ball.velocity *= -bounceFactor;
+                bounceCount += 1;
+                status.textContent = `Aufprall ${bounceCount}: Die Sprunghöhe nimmt ab.`;
+
+                if (Math.abs(ball.velocity) < 35) {
+                    ball.velocity = 0;
+                    animationId = null;
+                    status.textContent = 'Der Ball ist zur Ruhe gekommen.';
+                    draw();
+                    return;
+                }
+            }
+
+            draw();
+            animationId = requestAnimationFrame(update);
+        }
+
+        function startSimulation() {
+            if (animationId === null && ball.velocity === 0 && ball.y + ball.radius < ground) {
+                lastTime = 0;
+                animationId = requestAnimationFrame(update);
+                status.textContent = 'Der Ball fällt ...';
+            }
+        }
+
+        function resetSimulation() {
+            if (animationId !== null) {
+                cancelAnimationFrame(animationId);
+            }
+            animationId = null;
+            lastTime = 0;
+            bounceCount = 0;
+            ball.y = 70;
+            ball.velocity = 0;
+            status.textContent = 'Bereit zum Starten';
+            draw();
+        }
+
+        startButton.addEventListener('click', startSimulation);
+        resetButton.addEventListener('click', resetSimulation);
+        draw();
+    </script>
+</body>
+</html>
