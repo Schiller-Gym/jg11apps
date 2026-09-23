@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autounfall-Simulation - Kraft auf den Fahrer</title>
+<style>
+body { font-family: Arial; background: linear-gradient(#ffe0e0,#fff); margin:0; padding:0 0 40px 0; }
+h1 { text-align:center; color:#800000; }
+.controls,.info,.school{max-width:1000px;margin:20px auto;padding:20px;background:#fff5f5;border-radius:10px;box-shadow:0 5px 10px rgba(0,0,0,0.1);}
+.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;align-items:end;}
+label{font-weight:bold;color:#660000;}
+select{padding:6px;font-size:14px;}
+button{padding:10px;font-size:16px;border:none;border-radius:5px;background:#800000;color:white;cursor:pointer;margin-right:5px;}
+button:hover{background:#a30000;}
+.road{position:relative;width:95%;height:160px;margin:30px auto;background:#555;border-radius:10px;overflow:hidden;box-shadow:inset 0 -10px 20px rgba(0,0,0,0.3);}
+.lane{position:absolute;top:75px;width:100%;height:4px;background:repeating-linear-gradient(to right,white,white 20px,transparent 20px,transparent 40px);}
+.wall{position:absolute;top:0;right:0;width:25px;height:100%;background:repeating-linear-gradient(45deg,#777,#777 10px,#999 10px,#999 20px);border-left:4px solid #333;z-index:3;}
+.car{position:absolute;bottom:30px;left:0;width:90px;height:34px;background:#c00;border-radius:8px;border:2px solid #700;z-index:2;transition:none;}
+.car::before{content:"";position:absolute;top:-18px;left:15px;width:50px;height:18px;background:#700;border-radius:6px 6px 0 0;}
+.wheel{position:absolute;bottom:-10px;width:16px;height:16px;background:black;border-radius:50%;}
+.wheel.left{left:10px;} .wheel.right{right:10px;}
+.driver{position:absolute;bottom:6px;width:14px;height:14px;background:#333;border-radius:50%;border:2px solid yellow;z-index:4;}
+canvas{border:1px solid #ccc;background:#f9f9f9;}
+.gauge{width:100%;height:36px;background:#eee;border-radius:18px;overflow:hidden;border:1px solid #ccc;}
+.gaugeFill{height:100%;width:0%;background:linear-gradient(to right,#2ecc71,#f1c40f,#e74c3c);transition:width .3s;}
+.riskText{font-weight:bold;font-size:18px;margin-top:10px;}
+.school{display:none;line-height:1.6;}
+</style>
+</head>
+<body>
+<h1>💥 Autounfall-Simulation – Kraft auf den Fahrer</h1>
+
+<div class="controls">
+<div><label>Aufprallgeschwindigkeit v (km/h)</label><br><input type="range" id="speed" min="10" max="150" value="50"><div id="speedVal"></div></div>
+<div><label>Knautschzone (m)</label><br><input type="range" id="crumple" min="0.2" max="1.2" step="0.05" value="0.6"><div id="crumpleVal"></div></div>
+<div><label>Masse des Fahrers (kg)</label><br><input type="range" id="mass" min="40" max="120" step="5" value="75"><div id="massVal"></div></div>
+<div><label>Sicherheitsgurt</label><br><select id="belt"><option value="yes" selected>✅ Angeschnallt</option><option value="no">❌ Kein Gurt</option></select></div>
+</div>
+
+<div class="controls" style="grid-template-columns:repeat(4,auto);justify-content:center;">
+<button onclick="start()">▶ Start</button>
+<button onclick="stop()">⏹ Stop</button>
+<button onclick="reset()">🔄 Reset</button>
+<button onclick="toggleSchool()">🎓 Schulmodus</button>
+</div>
+
+<div class="road" id="road">
+<div class="lane"></div>
+<div class="wall"></div>
+<div class="car" id="car"><div class="wheel left"></div><div class="wheel right"></div><div class="driver" id="driver"></div></div>
+</div>
+
+<div class="info">
+<p><strong>Aufprallgeschwindigkeit:</strong> <span id="vOut">–</span> m/s</p>
+<p><strong>Verzögerung des Autos:</strong> <span id="aCarOut">–</span> m/s²</p>
+<p><strong>Verzögerung des Fahrers:</strong> <span id="aDriverOut">–</span> m/s²</p>
+<p><strong>Kraft auf den Fahrer F = m · a:</strong> <span id="forceOut">–</span> N</p>
+<p><strong>Vielfaches der Erdbeschleunigung:</strong> <span id="gOut">–</span> g</p>
+<div class="gauge"><div class="gaugeFill" id="gaugeFill"></div></div>
+<p class="riskText" id="riskText"></p>
+</div>
+
+<div class="info">
+<h3>📈 Kraft-Zeit-Diagramm (Aufprallphase)</h3>
+<canvas id="chart" width="900" height="300"></canvas>
+<p><strong>x-Achse:</strong> Zeit t (ms seit Aufprall) &nbsp; | &nbsp; <strong>y-Achse:</strong> Kraft F (N)</p>
+</div>
+
+<div class="school" id="school">
+<h3>🎓 Schulmodus – Physik</h3>
+<p><strong>Verzögerung:</strong> a = v² / (2 · s), wobei s der Bremsweg (Knautschzone bzw. Vorverlagerung des Körpers) ist.</p>
+<p><strong>Kraft:</strong> F = m · a (2. Newtonsches Gesetz)</p>
+<p><strong>Ohne Gurt</strong> wird der Fahrer erst vom Lenkrad/der Windschutzscheibe gestoppt – der Bremsweg ist sehr kurz (~5 cm), daher ist a und damit F sehr groß.</p>
+<p><strong>Mit Gurt</strong> (und Airbag) verlängert sich der Bremsweg des Körpers, wodurch a und F deutlich kleiner werden – das rettet Leben.</p>
+<p><strong>g-Kraft:</strong> Vielfaches von g = 9,81 m/s². Werte über ca. 50g sind lebensgefährlich, bereits ab ca. 20-30g drohen schwere Verletzungen.</p>
+</div>
+
+<script>
+const g = 9.81, dt = 0.005; // Simulationsschritt in Sekunden (echte Aufprallzeit)
+const slowMotion = 25; // Zeitlupenfaktor für die Animation
+
+let interval = null, points = [];
+
+const speed = document.getElementById("speed"), speedVal = document.getElementById("speedVal");
+const crumple = document.getElementById("crumple"), crumpleVal = document.getElementById("crumpleVal");
+const mass = document.getElementById("mass"), massVal = document.getElementById("massVal");
+const belt = document.getElementById("belt");
+const road = document.getElementById("road"), car = document.getElementById("car"), driver = document.getElementById("driver");
+const vOut = document.getElementById("vOut"), aCarOut = document.getElementById("aCarOut"), aDriverOut = document.getElementById("aDriverOut");
+const forceOut = document.getElementById("forceOut"), gOut = document.getElementById("gOut");
+const gaugeFill = document.getElementById("gaugeFill"), riskText = document.getElementById("riskText");
+const chart = document.getElementById("chart");
+const school = document.getElementById("school");
+
+function updateLabels(){
+    speedVal.textContent = speed.value + " km/h";
+    crumpleVal.textContent = Number(crumple.value).toFixed(2) + " m";
+    massVal.textContent = mass.value + " kg";
+}
+speed.addEventListener("input", updateLabels);
+crumple.addEventListener("input", updateLabels);
+mass.addEventListener("input", updateLabels);
+updateLabels();
+
+function start(){
+    reset();
+
+    const v0 = Number(speed.value) / 3.6;      // km/h -> m/s
+    const sCar = Number(crumple.value);        // Knautschzone in m
+    const m = Number(mass.value);
+    const angeschnallt = belt.value === "yes";
+
+    // Bremsweg des Fahrer-Körpers: mit Gurt zusätzlich zur Knautschzone gedehnt, ohne Gurt sehr kurz (Aufprall auf Lenkrad/Scheibe)
+    const sDriver = angeschnallt ? sCar + 0.25 : 0.05;
+
+    const aCar = (v0 * v0) / (2 * sCar);
+    const aDriver = (v0 * v0) / (2 * sDriver);
+    const F = m * aDriver;
+    const gForce = aDriver / g;
+
+    vOut.textContent = v0.toFixed(1);
+    aCarOut.textContent = aCar.toFixed(1);
+    aDriverOut.textContent = aDriver.toFixed(1);
+    forceOut.textContent = F.toFixed(0);
+    gOut.textContent = gForce.toFixed(1);
+
+    const gaugePercent = Math.min(gForce / 80 * 100, 100);
+    gaugeFill.style.width = gaugePercent + "%";
+    if (gForce < 20) { riskText.textContent = "🟢 Vermutlich überlebbar, leichte bis mittlere Verletzungen"; riskText.style.color = "#2ecc71"; }
+    else if (gForce < 50) { riskText.textContent = "🟠 Schwere Verletzungen wahrscheinlich"; riskText.style.color = "#e67e22"; }
+    else { riskText.textContent = "🔴 Lebensgefährlich!"; riskText.style.color = "#e74c3c"; }
+
+    const tCar = v0 / aCar;       // reale Dauer der Knautschzonen-Verformung
+    const tDriver = v0 / aDriver; // reale Dauer der Fahrer-Vorverlagerung
+
+    const roadWidth = road.offsetWidth - car.offsetWidth - 25; // 25px Wand
+    const approachDuration = 1500; // ms, feste Anfahrt-Animation
+    const crashPxPerMeter = 120;   // Skalierung für die kurze Knautschzonen-Strecke
+
+    let phase = "approach";
+    let approachStart = performance.now();
+    let crashStart = 0;
+    let carLeft0 = 0;
+
+    function animate(now){
+        if (phase === "approach") {
+            const p = Math.min((now - approachStart) / approachDuration, 1);
+            car.style.left = (p * roadWidth) + "px";
+            driver.style.left = "35px";
+            if (p >= 1) {
+                phase = "crash";
+                crashStart = now;
+                carLeft0 = roadWidth;
+            }
+        } else if (phase === "crash") {
+            const tReal = ((now - crashStart) / 1000) / slowMotion; // reale Zeit seit Aufprall
+            const tCarClamped = Math.min(tReal, tCar);
+            const tDriverClamped = Math.min(tReal, tDriver);
+
+            const sCarNow = v0 * tCarClamped - 0.5 * aCar * tCarClamped * tCarClamped;
+            const sDriverNow = v0 * tDriverClamped - 0.5 * aDriver * tDriverClamped * tDriverClamped;
+
+            car.style.left = (carLeft0 + sCarNow * crashPxPerMeter) + "px";
+            driver.style.left = (35 + sDriverNow * crashPxPerMeter) + "px";
+
+            const fNow = m * aDriver * (tDriverClamped < tDriver ? 1 : 0);
+            points.push({ t: tReal * 1000, f: fNow });
+            drawChart();
+
+            if (tReal >= tCar && tReal >= tDriver) {
+                stop();
+                return;
+            }
+        }
+        interval = requestAnimationFrame(animate);
+    }
+    interval = requestAnimationFrame(animate);
+}
+
+function drawChart(){
+    const ctx = chart.getContext("2d");
+    ctx.clearRect(0, 0, chart.width, chart.height);
+    const originX = 60, originY = 260, xScale = 3, yScale = 0.02;
+    ctx.strokeStyle = "#ddd"; ctx.font = "12px Arial"; ctx.fillStyle = "black";
+    for (let i = 0; i <= 10; i++) { const x = originX + i * 20 * xScale; ctx.beginPath(); ctx.moveTo(x, originY); ctx.lineTo(x, 20); ctx.stroke(); ctx.fillText(i * 20 + " ms", x - 12, originY + 20); }
+    for (let f = 0; f <= 10000; f += 1000) { const y = originY - f * yScale; ctx.beginPath(); ctx.moveTo(originX, y); ctx.lineTo(850, y); ctx.stroke(); ctx.fillText(f + " N", 5, y + 4); }
+    ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(originX, originY); ctx.lineTo(850, originY); ctx.moveTo(originX, originY); ctx.lineTo(originX, 20); ctx.stroke();
+    ctx.beginPath();
+    points.forEach((p, i) => { const x = originX + p.t * xScale; const y = originY - p.f * yScale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.strokeStyle = "red"; ctx.lineWidth = 2; ctx.stroke();
+}
+
+function stop(){
+    if (interval) cancelAnimationFrame(interval);
+    interval = null;
+}
+
+function reset(){
+    stop();
+    car.style.left = "0px";
+    driver.style.left = "35px";
+    vOut.textContent = "–"; aCarOut.textContent = "–"; aDriverOut.textContent = "–";
+    forceOut.textContent = "–"; gOut.textContent = "–";
+    gaugeFill.style.width = "0%"; riskText.textContent = "";
+    points = []; drawChart();
+}
+
+function toggleSchool(){ school.style.display = school.style.display === "block" ? "none" : "block"; }
+
+reset();
+</script>
+</body>
+</html>
